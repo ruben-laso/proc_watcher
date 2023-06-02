@@ -94,7 +94,7 @@ namespace proc_watcher
 
 		unsigned long long int last_total_time_{}; // Last total time of the CPU. Used for the calculation of cpu_use_.
 
-		std::filesystem::path path_;               // The path to the process folder.
+		std::filesystem::path path_{};             // The path to the process folder.
 		std::filesystem::path children_path_{};    // The path to the children file.
 		std::filesystem::path tasks_path_{};       // The path to the tasks file.
 
@@ -106,26 +106,24 @@ namespace proc_watcher
 			return UID;
 		}
 
-		static void set_affinity_error(const pid_t pid)
+		static auto set_affinity_error(const pid_t pid)
 		{
 			switch (errno)
 			{
 				case EFAULT:
-					spdlog::error("Error setting affinity: A supplied memory address was invalid.");
-					break;
+					return fmt::format("Error setting affinity: A supplied memory address was invalid.");
 				case EINVAL:
-					spdlog::error(
+					return fmt::format(
 					    "Error setting affinity: The affinity bitmask mask contains no processors that are physically "
 					    "on the system, or cpusetsize is smaller than the size of the affinity mask used by the kernel.");
-					break;
 				case EPERM:
-					spdlog::error(
+					return fmt::format(
 					    "Error setting affinity: The calling process does not have appropriate privileges for PID {}.",
 					    pid);
-					break;
 				case ESRCH: // When this happens, it's practically unavoidable
-					spdlog::error("Error setting affinity: The process whose ID is {} could not be found", pid);
-					break;
+					return fmt::format("Error setting affinity: The process whose ID is {} could not be found", pid);
+				default:
+					return fmt::format("Error setting affinity: Unknown error");
 			}
 		}
 
@@ -427,7 +425,7 @@ namespace proc_watcher
 
 		[[nodiscard]] inline auto ppid() const -> pid_t { return ppid_; }
 
-		[[nodiscard]] inline auto procesor() const
+		[[nodiscard]] inline auto processor() const
 		{
 			return pinned_processor_.has_value() ? pinned_processor_.value() : processor_;
 		}
@@ -446,6 +444,8 @@ namespace proc_watcher
 		[[nodiscard]] inline auto migratable() const { return migratable_; }
 
 		[[nodiscard]] inline auto state() const { return state_; }
+
+		[[nodiscard]] inline auto running() const { return state_ == RUNNING_CHAR; }
 
 		[[nodiscard]] inline auto pgrp() const { return pgrp_; }
 
@@ -485,10 +485,7 @@ namespace proc_watcher
 
 		[[nodiscard]] inline auto st_uid() const { return st_uid_; }
 
-		[[nodiscard]] inline auto processor() const { return processor_; }
-
 		[[nodiscard]] inline auto exit_signal() const { return exit_signal_; }
-
 
 		inline void update()
 		{
@@ -506,10 +503,76 @@ namespace proc_watcher
 
 		[[nodiscard]] inline auto children_and_tasks() const { return ranges::views::concat(children_, tasks_); }
 
+		inline void pin_processor(const int processor)
+		{
+			if (pinned_processor_.has_value() and std::cmp_equal(pinned_processor_.value(), processor)) { return; }
+
+			cpu_set_t affinity;
+
+			CPU_ZERO(&affinity);
+			CPU_SET(processor, &affinity);
+
+			if (__glibc_unlikely(sched_setaffinity(pid_, sizeof(cpu_set_t), &affinity)))
+			{
+				throw std::runtime_error(set_affinity_error(pid_));
+			}
+
+			pinned_processor_ = processor;
+		}
+
+		inline void pin_processor()
+		{
+			if (pinned_processor_.has_value()) { return; }
+
+			pin_processor(processor_);
+		}
+
+		inline void pin_numa_node(const int numa_node)
+		{
+			if (pinned_numa_node_.has_value() and std::cmp_equal(pinned_numa_node_.value(), numa_node)) { return; }
+
+			bitmask * cpus = numa_allocate_cpumask();
+
+			if (__glibc_unlikely(std::cmp_equal(numa_node_to_cpus(numa_node, cpus), -1)))
+			{
+				throw std::runtime_error(fmt::format("Could not retrieve CPUs of NUMA node {}", numa_node));
+			}
+
+			if (__glibc_unlikely(numa_sched_setaffinity(pid_, cpus)))
+			{
+				throw std::runtime_error(set_affinity_error(pid_));
+			}
+
+			numa_free_cpumask(cpus);
+
+			pinned_numa_node_ = numa_node;
+		}
+
+		inline void pin_numa_node()
+		{
+			if (pinned_numa_node_.has_value()) { return; }
+
+			pin_numa_node(numa_node());
+		}
+
+		inline void unpin()
+		{
+			if (not pinned_processor_.has_value() and not pinned_numa_node_.has_value()) { return; }
+
+			cpu_set_t affinity;
+			sched_getaffinity(0, sizeof(cpu_set_t),
+			                  &affinity); // Gets this process' affinity (supposed to be the default)
+
+			if (__glibc_unlikely(sched_setaffinity(pid_, sizeof(cpu_set_t), &affinity)))
+			{
+				throw std::runtime_error(set_affinity_error(pid_));
+			}
+		}
+
 		friend auto operator<<(std::ostream & os, [[maybe_unused]] const process & p) -> std::ostream &
 		{
 			os << fmt::format("PID: {:>5}, PPID: {:>5}, NODE: {:>1}, CPU: {:>3} (", p.pid_, p.ppid_, p.numa_node(),
-			                  p.procesor());
+			                  p.processor());
 			if (p.cpu_use_ > 100.0F)
 			{
 				// E.g. : (113.%)
