@@ -6,10 +6,6 @@ if (TARGET range-v3)
     message(STATUS "Found range-v3: ${range-v3_SOURCE_DIR}")
 endif ()
 
-if (TARGET tabulate)
-    message(STATUS "Found tabulate: ${tabulate_SOURCE_DIR}")
-endif ()
-
 # spdlog
 CPMAddPackage(
         NAME spdlog
