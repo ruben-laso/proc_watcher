@@ -5,12 +5,13 @@
 #include <numa.h>
 
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <set>
 #include <string>
 
-#include <spdlog/fmt/ostr.h>
-#include <spdlog/spdlog.h>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 
 #include <range/v3/all.hpp>
 
@@ -18,7 +19,6 @@ namespace proc_watcher
 {
 	class process
 	{
-		using real_t       = float;
 		using time_point_t = std::chrono::time_point<std::chrono::system_clock>;
 
 	public:
@@ -90,7 +90,7 @@ namespace proc_watcher
 		                                        // pinning a process and the migration is performed.
 
 		unsigned long long last_times_{};       // (utime + stime). Updated when the process is updated.
-		real_t             cpu_use_{};          // Portion of CPU time used (between 0 and 1).
+		float              cpu_use_{};          // Portion of CPU time used (between 0 and 1).
 
 		unsigned long long int last_total_time_{}; // Last total time of the CPU. Used for the calculation of cpu_use_.
 
@@ -137,7 +137,8 @@ namespace proc_watcher
 
 			if (not stat_file.is_open() or not stat_file.good())
 			{
-				const auto error = fmt::format("Error opening stat file for PID {} ({})", pid_, stat_file_path);
+				const auto error =
+				    fmt::format("Error opening stat file for PID {} ({})", pid_, stat_file_path.string());
 				throw std::runtime_error(error);
 			}
 
@@ -206,16 +207,16 @@ namespace proc_watcher
 
 			const auto period = scan_cpu_time();
 
-			cpu_use_ = static_cast<real_t>(time - last_times_) / period * 100.0F;
+			cpu_use_ = static_cast<float>(time - last_times_) / period * 100.0F;
 			if (not std::isnormal(cpu_use_)) { cpu_use_ = 0.0; }
 
 			// Parent processes gather all children CPU usage => cpu_use_ >> 100
-			cpu_use_ = std::clamp(cpu_use_, static_cast<real_t>(0.0), static_cast<real_t>(100.0));
+			cpu_use_ = std::clamp(cpu_use_, static_cast<float>(0.0), static_cast<float>(100.0));
 
 			last_times_ = time;
 		}
 
-		auto scan_cpu_time(const std::string_view filename = DEF_CPU_STAT) -> real_t
+		auto scan_cpu_time(const std::string_view filename = DEF_CPU_STAT) -> float
 		{
 			static const auto N_CPUS = sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -272,7 +273,7 @@ namespace proc_watcher
 
 			last_total_time_ = total_time;
 
-			const auto period = static_cast<real_t>(total_period) / static_cast<real_t>(N_CPUS);
+			const auto period = static_cast<float>(total_period) / static_cast<float>(N_CPUS);
 
 			return period;
 		}
@@ -293,7 +294,8 @@ namespace proc_watcher
 				}
 				catch (const std::exception & e)
 				{
-					spdlog::error("Error reading thread ID from {}: {}", entry.path().string(), e.what());
+					throw std::runtime_error(
+					    fmt::format("Error reading thread ID from {}: {}", entry.path().string(), e.what()));
 				}
 			}
 
@@ -312,8 +314,8 @@ namespace proc_watcher
 
 			if (not file.is_open())
 			{
-				const auto error_str =
-				    fmt::format("Could not open file {}. Error {} ({})", children_path_, errno, strerror(errno));
+				const auto error_str = fmt::format("Could not open file {}. Error {} ({})", children_path_.string(),
+				                                   errno, strerror(errno));
 				throw std::runtime_error(error_str);
 			}
 
@@ -332,15 +334,7 @@ namespace proc_watcher
 			// Root can do anything
 			if (std::cmp_equal(uid(), 0)) { return true; }
 
-			const std::string folder = "/proc/" + std::to_string(pid_);
-
-			struct stat info = {};
-
-			stat(folder.c_str(), &info);
-
-			const auto st_uid = info.st_uid;
-
-			return std::cmp_equal(st_uid, uid());
+			return std::cmp_equal(st_uid_, uid());
 		}
 
 		[[nodiscard]] inline auto tasks_folder() { return path_ / std::to_string(pid_) / "task"; }
@@ -569,22 +563,10 @@ namespace proc_watcher
 			}
 		}
 
-		friend auto operator<<(std::ostream & os, [[maybe_unused]] const process & p) -> std::ostream &
+		friend auto operator<<(std::ostream & os, const process & p) -> std::ostream &
 		{
-			os << fmt::format("PID: {:>5}, PPID: {:>5}, NODE: {:>1}, CPU: {:>3} (", p.pid_, p.ppid_, p.numa_node(),
-			                  p.processor());
-			if (p.cpu_use_ > 100.0F)
-			{
-				// E.g. : (113.%)
-				os << fmt::format("{:>3}%", static_cast<int>(p.cpu_use_));
-			}
-			else
-			{
-				// E.g. : (73.8%)
-				os << fmt::format("{:>2.1f}%", p.cpu_use_);
-			}
-
-			os << fmt::format(") (LWP: {:>5}), CMDLINE: {}", p.lwp_, p.cmdline());
+			os << fmt::format("PID: {:>6}, PPID: {:>6}, NODE: {:>2}, CPU: {:>3} ({:.1f}%), LWP: {:>5}, CMDLINE: {}",
+			                  p.pid_, p.ppid_, p.numa_node(), p.processor(), p.cpu_use(), p.lwp_, p.cmdline());
 
 			return os;
 		}

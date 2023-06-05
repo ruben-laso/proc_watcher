@@ -2,10 +2,10 @@
 #include <thread>
 
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
 
-#include "proc_watcher/proc_watcher.hpp"
-
-#include "proc_watcher/process.hpp"
+#include <proc_watcher/proc_watcher.hpp>
+#include <proc_watcher/process.hpp>
 
 template<typename F>
 auto measure(F && f)
@@ -56,7 +56,7 @@ auto main() -> int
 		const auto & cpu_proc =
 		    *ranges::max_element(processes, std::less{}, [&](const auto & proc) { return proc.cpu_use(); });
 
-		spdlog::info("Most CPU consuming PID {}: {}%", cpu_proc.pid(), cpu_proc.cpu_use());
+		spdlog::info("Most CPU consuming PID {}: {:>.2f}%", cpu_proc.pid(), cpu_proc.cpu_use());
 	}
 
 	return EXIT_SUCCESS;

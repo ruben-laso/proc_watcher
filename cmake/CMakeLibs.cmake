@@ -1,19 +1,15 @@
-# Ranges
-# From : https://alandefreitas.github.io/moderncpp/algorithms-data-structures/algorithm/ranges/
-# Use range-v3 for now: https://github.com/ericniebler/range-v3
+# Range-v3
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
-if (TARGET range-v3)
-    message(STATUS "Found range-v3: ${range-v3_SOURCE_DIR}")
+if (TARGET range-v3::range-v3)
+    message(STATUS "Found range-v3: OK")
+else ()
+    message(SEND_ERROR "Found range-v3: ERROR")
 endif ()
 
-# spdlog
-CPMAddPackage(
-        NAME spdlog
-        GITHUB_REPOSITORY "gabime/spdlog"
-        VERSION 1.11.0
-        OPTIONS "SPDLOG_BUILD_BENCH OFF" "SPDLOG_FMT_EXTERNAL ON" "SPDLOG_BUILD_SHARED ON" "SPDLOG_BUILD_TESTS OFF"
-)
-
-if (TARGET spdlog::spdlog_header_only)
-    message(STATUS "Found spdlog_header_only: ${spdlog_SOURCE_DIR}")
+# fmt
+CPMAddPackage("gh:fmtlib/fmt")
+if (TARGET fmt::fmt)
+    message(STATUS "Found fmt: OK")
+else ()
+    message(SEND_ERROR "Found fmt: ERROR")
 endif ()

@@ -1,9 +1,3 @@
-# --- CONFIGURATION --- #
-# --------------------- #
-
-# Setup compiler flags
-
-
 # CPM Setup
 set(CPM_USE_LOCAL_PACKAGES ON)
 set(CPM_USE_NAMED_CACHE_DIRECTORIES ON)

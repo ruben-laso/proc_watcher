@@ -1,9 +1,9 @@
-if (TARGET range-v3)
-    target_link_libraries(${PROJECT_NAME} PRIVATE range-v3)
+if (TARGET range-v3::range-v3)
+    target_link_libraries(${PROJECT_NAME} INTERFACE range-v3::range-v3)
 endif ()
 
-if (TARGET spdlog::spdlog_header_only)
-    target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog_header_only)
+if (TARGET fmt::fmt)
+    target_link_libraries(${PROJECT_NAME} INTERFACE fmt::fmt)
 endif ()
 
-target_link_libraries(${PROJECT_NAME} PRIVATE numa)
+target_link_libraries(${PROJECT_NAME} INTERFACE numa)
