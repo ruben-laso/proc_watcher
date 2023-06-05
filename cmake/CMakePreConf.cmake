@@ -6,5 +6,4 @@ include(cmake/get_cpm.cmake)
 # Add our module directory to the include path.
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
 
-include_directories(src/)
-include_directories(inc/)
+include_directories(include/)

@@ -1,5 +1,5 @@
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS src/*.cpp)
-file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS inc/proc_watcher/*.hpp)
+file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS include/proc_watcher/*.hpp)
 
 add_library(${PROJECT_NAME} INTERFACE "${public_headers}")
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
@@ -10,7 +10,7 @@ target_sources(${PROJECT_NAME} PUBLIC "${sources}")
 
 target_include_directories(${PROJECT_NAME}
         INTERFACE
-        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>"
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
 #        "$<INSTALL_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>"
         )
 

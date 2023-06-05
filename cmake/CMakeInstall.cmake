@@ -15,7 +15,7 @@ include(GNUInstallDirs)
 set(package ${PROJECT_NAME})
 
 install(
-        DIRECTORY inc/
+        DIRECTORY include/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         COMPONENT ${PROJECT_NAME}_Development
 )
@@ -39,10 +39,16 @@ set(
 )
 mark_as_advanced(${PROJECT_NAME}_INSTALL_CMAKEDIR)
 
+set(project_config_in "${CMAKE_CURRENT_LIST_DIR}/proc_watcherConfig.cmake.in")
+
+configure_package_config_file(
+        "${project_config_in}"
+        "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        INSTALL_DESTINATION "${${PROJECT_NAME}_INSTALL_CMAKEDIR}"
+)
 install(
-        FILES cmake/CMakeInstallConfig.cmake
+        FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
         DESTINATION "${${PROJECT_NAME}_INSTALL_CMAKEDIR}"
-        RENAME "${package}Config.cmake"
         COMPONENT ${PROJECT_NAME}_Development
 )
 
