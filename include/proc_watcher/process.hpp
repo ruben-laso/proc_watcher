@@ -153,10 +153,6 @@ namespace proc_watcher
 			stat_file >> pid;
 			if (std::cmp_not_equal(pid, pid_))
 			{
-				// get back to the beginning of the file for future reads
-				stat_file.clear();
-				stat_file.seekg(0, std::ifstream::beg);
-
 				const auto error = fmt::format("PID mismatch: expected {} but got {}", pid_, pid);
 				throw std::runtime_error(error);
 			}
