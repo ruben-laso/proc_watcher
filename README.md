@@ -31,4 +31,4 @@ Please use the `clang-format` and `clang-tidy` tools before committing.
 This project is licensed under the GNU GPLv3 license. See [LICENSE](LICENSE) for more details.
 
 ## Contact
-If you have any questions, feel send me an [email](mailto:laso@par.tuwien.ac.at).
+If you have any questions, feel free to send me an [email](mailto:laso@par.tuwien.ac.at).
