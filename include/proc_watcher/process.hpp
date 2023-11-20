@@ -1,26 +1,33 @@
 #pragma once
 
-#include <unistd.h>
+#include <cerrno>   // for errno, EFAULT, EINVAL, EPERM, ESRCH
+#include <cmath>    // for isnormal
+#include <cstring>  // for strerror
+#include <numa.h>   // for numa_allocate_cpumask, numa_free_cpumask, numa_node_to_cpus, numa_sched_setaffinity
+#include <sched.h>  // for sched_setaffinity, cpu_set_t, sched_getaffinity, CPU_SET, CPU_ZERO
+#include <unistd.h> // for sysconf, _SC_NPROCESSORS_ONLN
 
-#include <numa.h>
+#include <algorithm>   // for clamp
+#include <chrono>      // for time_point, system_clock, chrono_literals
+#include <exception>   // for exception
+#include <filesystem>  // for path, directory_iterator, exists, is_directory, is_regular_file, directory_entry
+#include <fstream>     // for ifstream, basic_istream, operator>>, basic_ostream, getline
+#include <iostream>    // for operator<<, basic_ostream, ostream
+#include <optional>    // for optional
+#include <set>         // for set
+#include <stdexcept>   // for runtime_error
+#include <string>      // for string, to_string, getline
+#include <string_view> // for string_view
+#include <utility>     // for
 
-#include <fstream>
-#include <iostream>
-#include <optional>
-#include <set>
-#include <string>
+#include <fmt/core.h> // for format
 
-#include <fmt/format.h>
-#include <fmt/ostream.h>
-
-#include <range/v3/all.hpp>
+#include <range/v3/all.hpp> // for views::split, views::to, views::concat
 
 namespace proc_watcher
 {
 	class process
 	{
-		using time_point_t = std::chrono::time_point<std::chrono::system_clock>;
-
 	public:
 		constexpr static const std::string_view DEFAULT_PROC = "/proc";
 		constexpr static const std::string_view DEF_CPU_STAT = "/proc/stat";
@@ -35,35 +42,35 @@ namespace proc_watcher
 		std::set<pid_t> children_{}; // The children of this process.
 		std::set<pid_t> tasks_{};    // The tasks (LWP) of this process.
 
-		pid_t pid_{};                // The process ID.
+		pid_t pid_{}; // The process ID.
 
-		pid_t effective_ppid_{};     // The parent process ID.
-		                             // PPID is the same for "main" threads and its "LWP" threads.
-		                             // This keeps track of the "main" thread when this process is a "LWP".
-		                             // Otherwise, it is the same as ppid_.
+		pid_t effective_ppid_{}; // The parent process ID.
+		                         // PPID is the same for "main" threads and its "LWP" threads.
+		                         // This keeps track of the "main" thread when this process is a "LWP".
+		                         // Otherwise, it is the same as ppid_.
 
-		bool migratable_ = false;    // True if the process is migratable.
-		bool lwp_        = false;    // Is a Lightweight Process (or a thread).
-		                             // True if this process has the same command line as its parent
-		                             // or "ps" command is empty.
+		bool migratable_ = false; // True if the process is migratable.
+		bool lwp_        = false; // Is a Lightweight Process (or a thread).
+		                          // True if this process has the same command line as its parent
+		                          // or "ps" command is empty.
 
-		char state_{};               // State of the process.
+		char state_{}; // State of the process.
 
-		pid_t        ppid_{};        // The PID of the parent of this process.
-		unsigned int pgrp_{};        // The process group ID of the process.
-		unsigned int session_{};     // The session ID of the process.
-		unsigned int tty_nr_{};      // The controlling terminal of the process.
-		int          tpgid_{}; // The ID of the foreground process group of the controlling terminal of the process.
+		pid_t        ppid_{};    // The PID of the parent of this process.
+		unsigned int pgrp_{};    // The process group ID of the process.
+		unsigned int session_{}; // The session ID of the process.
+		unsigned int tty_nr_{};  // The controlling terminal of the process.
+		int          tpgid_{};   // The ID of the foreground process group of the controlling terminal of the process.
 
-		unsigned long int flags_{};   // The kernel flags word of the process.
+		unsigned long int flags_{}; // The kernel flags word of the process.
 
 		unsigned long int minflt_{};  // The number of minor faults the process has made.
 		unsigned long int cminflt_{}; // The number of minor faults that the process's waited-for children have made.
 		unsigned long int majflt_{};  // The number of major faults the process has made.
 		unsigned long int cmajflt_{}; // The number of major faults that the process's waited-for children have made.
 
-		unsigned long long utime_{};  // Amount of time that this process has been scheduled in user mode.
-		unsigned long long stime_{};  // Amount of time that this process has been scheduled in kernel mode.
+		unsigned long long utime_{}; // Amount of time that this process has been scheduled in user mode.
+		unsigned long long stime_{}; // Amount of time that this process has been scheduled in kernel mode.
 		unsigned long long
 		    cutime_{}; // Amount of time that this process's waited-for children have been scheduled in user mode.
 		unsigned long long
@@ -73,32 +80,32 @@ namespace proc_watcher
 
 		long int
 		    priority_{}; // For processes running a real-time scheduling policy, this is the negated scheduling priority, minus one.
-		long int nice_{};        // The nice value, a value in the range 19 (low priority) to -20 (high priority).
+		long int nice_{}; // The nice value, a value in the range 19 (low priority) to -20 (high priority).
 
 		long int num_threads_{}; // Number of threads in this process.
 
-		unsigned long long starttime_{};        // The time the process started after system boot.
+		unsigned long long starttime_{}; // The time the process started after system boot.
 
-		uid_t st_uid_{};                        // User ID the process belongs to.
-		int   processor_{};                     // CPU number last executed on.
+		uid_t st_uid_{};    // User ID the process belongs to.
+		int   processor_{}; // CPU number last executed on.
 
-		int exit_signal_{};                     // The thread's exit status in the form reported by wait_pid.
+		int exit_signal_{}; // The thread's exit status in the form reported by wait_pid.
 
 		std::optional<int> pinned_processor_{}; // CPU number pinned on. There might be a delay between pinning
 		                                        // a process and the migration is performed.
 		std::optional<int> pinned_numa_node_{}; // NUMA node of pinned_processor_ field. There might be a delay between
 		                                        // pinning a process and the migration is performed.
 
-		unsigned long long last_times_{};       // (utime + stime). Updated when the process is updated.
-		float              cpu_use_{};          // Portion of CPU time used (between 0 and 1).
+		unsigned long long last_times_{}; // (utime + stime). Updated when the process is updated.
+		float              cpu_use_{};    // Portion of CPU time used (between 0 and 1).
 
 		unsigned long long int last_total_time_{}; // Last total time of the CPU. Used for the calculation of cpu_use_.
 
-		std::filesystem::path path_{};             // The path to the process folder.
-		std::filesystem::path children_path_{};    // The path to the children file.
-		std::filesystem::path tasks_path_{};       // The path to the tasks file.
+		std::filesystem::path path_{};          // The path to the process folder.
+		std::filesystem::path children_path_{}; // The path to the children file.
+		std::filesystem::path tasks_path_{};    // The path to the tasks file.
 
-		std::string cmdline_{};                    // The command line of this process.
+		std::string cmdline_{}; // The command line of this process.
 
 		[[nodiscard]] static inline auto uid() -> uid_t
 		{
@@ -285,7 +292,7 @@ namespace proc_watcher
 			if (not std::filesystem::exists(tasks_path_)) { return; }
 
 			// Tasks is a directory with subfolders named after the thread IDs
-			for (auto & entry : std::filesystem::directory_iterator(tasks_path_))
+			for (const auto & entry : std::filesystem::directory_iterator(tasks_path_))
 			{
 				try
 				{
@@ -319,15 +326,13 @@ namespace proc_watcher
 				throw std::runtime_error(error_str);
 			}
 
-			pid_t child_pid;
-
-			while (file >> child_pid)
+			for (pid_t child_pid = 0; file >> child_pid;)
 			{
 				children_.emplace(child_pid);
 			}
 		}
 
-		inline auto is_migratable() const -> bool
+		[[nodiscard]] inline auto is_migratable() const -> bool
 		{
 			// Bad PID
 			if (std::cmp_less(pid_, 1)) { return false; }
@@ -359,7 +364,14 @@ namespace proc_watcher
 				ranges::copy(ranges::istream_view<std::string>(cmdline_file),
 				             ranges::ostream_iterator<std::string>(cmdline_stream, " "));
 
-				return cmdline_stream.str();
+				// Remove trailing whitespace(s)
+				auto cmdline = cmdline_stream.str();
+
+				static constexpr auto whitespaces{ " \t\f\v\n\r" };
+
+				cmdline.erase(cmdline.find_last_not_of(whitespaces));
+
+				return cmdline;
 			}
 			catch (std::exception & e)
 			{
@@ -418,6 +430,8 @@ namespace proc_watcher
 		[[nodiscard]] inline auto pid() const -> pid_t { return pid_; }
 
 		[[nodiscard]] inline auto ppid() const -> pid_t { return ppid_; }
+
+		[[nodiscard]] inline auto effective_ppid() const -> pid_t { return effective_ppid_; }
 
 		[[nodiscard]] inline auto processor() const
 		{
