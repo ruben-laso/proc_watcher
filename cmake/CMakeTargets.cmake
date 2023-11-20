@@ -11,7 +11,6 @@ target_sources(${PROJECT_NAME} PUBLIC "${sources}")
 target_include_directories(${PROJECT_NAME}
         INTERFACE
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-#        "$<INSTALL_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>"
-        )
+)
 
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)

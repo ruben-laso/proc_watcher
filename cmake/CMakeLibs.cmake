@@ -7,7 +7,7 @@ else ()
 endif ()
 
 # fmt
-CPMAddPackage("gh:fmtlib/fmt")
+CPMAddPackage("gh:fmtlib/fmt#10.1.1")
 if (TARGET fmt::fmt)
     message(STATUS "Found fmt: OK")
 else ()
