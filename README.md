@@ -32,4 +32,3 @@ This project is licensed under the GNU GPLv3 license. See [LICENSE](LICENSE) for
 
 ## Contact
 If you have any questions, feel send me an [email](mailto:laso@par.tuwien.ac.at).
-```
