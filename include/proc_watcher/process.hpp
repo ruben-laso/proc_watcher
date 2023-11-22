@@ -23,20 +23,24 @@
 #include <fmt/core.h> // for format
 
 #include <range/v3/all.hpp> // for views::split, views::to, views::concat
+#include <spdlog/spdlog.h>
 
 namespace proc_watcher
 {
 	class process
 	{
-	public:
-		constexpr static const std::string_view DEFAULT_PROC = "/proc";
-		constexpr static const std::string_view DEF_CPU_STAT = "/proc/stat";
+		// From htop: supposed to be in linux/sched.h
+		constexpr static auto PF_KTHREAD = 0x00200000;
 
-		constexpr static const char RUNNING_CHAR  = 'R';
-		constexpr static const char SLEEPING_CHAR = 'S';
-		constexpr static const char WAITING_CHAR  = 'W';
-		constexpr static const char ZOMBIE_CHAR   = 'Z';
-		constexpr static const char STOPPED_CHAR  = 'T';
+	public:
+		constexpr static std::string_view DEFAULT_PROC = "/proc";
+		constexpr static std::string_view DEF_CPU_STAT = "/proc/stat";
+
+		constexpr static char RUNNING_CHAR  = 'R';
+		constexpr static char SLEEPING_CHAR = 'S';
+		constexpr static char WAITING_CHAR  = 'W';
+		constexpr static char ZOMBIE_CHAR   = 'Z';
+		constexpr static char STOPPED_CHAR  = 'T';
 
 	private:
 		std::set<pid_t> children_{}; // The children of this process.
@@ -107,7 +111,9 @@ namespace proc_watcher
 
 		std::string cmdline_{}; // The command line of this process.
 
-		[[nodiscard]] static inline auto uid() -> uid_t
+		std::chrono::time_point<std::chrono::high_resolution_clock> last_update_{}; // Last time the process was updated.
+
+		[[nodiscard]] static auto uid() -> uid_t
 		{
 			static const auto UID = getuid();
 			return UID;
@@ -206,17 +212,18 @@ namespace proc_watcher
 			// Update the process info from the stat file
 			manual_read_stat_file();
 
-			const auto time = utime_ + stime_;
-
 			const auto period = scan_cpu_time();
 
-			cpu_use_ = static_cast<float>(time - last_times_) / period * 100.0F;
+			cpu_use_ = static_cast<float>(time_ - last_times_) / period * 100.0F;
+
 			if (not std::isnormal(cpu_use_)) { cpu_use_ = 0.0; }
 
 			// Parent processes gather all children CPU usage => cpu_use_ >> 100
 			cpu_use_ = std::clamp(cpu_use_, static_cast<float>(0.0), static_cast<float>(100.0));
 
-			last_times_ = time;
+			last_times_ = time_;
+
+			last_update_ = std::chrono::high_resolution_clock::now();
 		}
 
 		auto scan_cpu_time(const std::string_view filename = DEF_CPU_STAT) -> float
@@ -232,7 +239,7 @@ namespace proc_watcher
 				throw std::runtime_error(error_str);
 			}
 
-			if (__glibc_unlikely(std::cmp_less_equal(N_CPUS, 0)))
+			if (std::cmp_less_equal(N_CPUS, 0))
 			{
 				const auto error_str = fmt::format("Invalid number of CPUs: {}", N_CPUS);
 				throw std::runtime_error(error_str);
@@ -281,7 +288,7 @@ namespace proc_watcher
 			return period;
 		}
 
-		[[nodiscard]] inline auto update_list_of_tasks()
+		[[nodiscard]] auto update_list_of_tasks()
 		{
 			tasks_ = {};
 
@@ -306,7 +313,7 @@ namespace proc_watcher
 			tasks_.erase(pid_);
 		}
 
-		[[nodiscard]] inline auto update_list_of_children()
+		[[nodiscard]] auto update_list_of_children()
 		{
 			children_ = {};
 
@@ -328,7 +335,7 @@ namespace proc_watcher
 			}
 		}
 
-		[[nodiscard]] inline auto is_migratable() const -> bool
+		[[nodiscard]] auto is_migratable() const -> bool
 		{
 			// Bad PID
 			if (std::cmp_less(pid_, 1)) { return false; }
@@ -338,9 +345,9 @@ namespace proc_watcher
 			return std::cmp_equal(st_uid_, uid());
 		}
 
-		[[nodiscard]] inline auto tasks_folder() { return path_ / std::to_string(pid_) / "task"; }
+		[[nodiscard]] auto tasks_folder() const { return path_ / std::to_string(pid_) / "task"; }
 
-		[[nodiscard]] inline auto children_folder()
+		[[nodiscard]] auto children_folder() const
 		{
 			static const std::string CHILDREN_FILE("children");
 			// Straightforward if the process is a LWP
@@ -349,7 +356,7 @@ namespace proc_watcher
 			return tasks_folder() / std::to_string(pid_) / CHILDREN_FILE;
 		}
 
-		[[nodiscard]] inline auto obtain_cmdline()
+		[[nodiscard]] auto obtain_cmdline()
 		{
 			try
 			{
@@ -381,11 +388,16 @@ namespace proc_watcher
 			}
 		}
 
+		[[nodiscard]] auto is_userland_lwp() const { return pid_ not_eq pgrp_; }
+
+		[[nodiscard]] auto is_kernel_lwp() const { return static_cast<bool>(flags_ & PF_KTHREAD); }
+
 	public:
 		process() = delete;
 
 		explicit process(const pid_t pid) :
 		    pid_(pid),
+		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
 		    path_("/proc"),
 		    tasks_path_(tasks_folder()),
@@ -395,10 +407,14 @@ namespace proc_watcher
 		{
 			update();
 			effective_ppid_ = ppid_;
+
+			// Update lwp after parsing the stat file
+			lwp_ = is_userland_lwp() or is_kernel_lwp();
 		}
 
-		process(const pid_t pid, const std::string_view dirname, std::optional<pid_t> ppid_opt = std::nullopt) :
+		process(const pid_t pid, const std::string_view dirname, const std::optional<pid_t> ppid_opt = std::nullopt) :
 		    pid_(pid),
+		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
 		    path_(dirname),
 		    tasks_path_(tasks_folder()),
@@ -407,6 +423,8 @@ namespace proc_watcher
 		    migratable_(is_migratable())
 		{
 			update();
+
+			lwp_ = is_userland_lwp() or is_kernel_lwp();
 
 			if (not lwp_) { effective_ppid_ = ppid_; }
 			else if (ppid_opt.has_value()) { effective_ppid_ = ppid_opt.value(); }
@@ -421,77 +439,79 @@ namespace proc_watcher
 			}
 		}
 
-		[[nodiscard]] inline auto cmdline() const { return cmdline_; }
+		[[nodiscard]] auto cmdline() const { return cmdline_; }
 
-		[[nodiscard]] inline auto pid() const -> pid_t { return pid_; }
+		[[nodiscard]] auto pid() const -> pid_t { return pid_; }
 
-		[[nodiscard]] inline auto ppid() const -> pid_t { return ppid_; }
+		[[nodiscard]] auto ppid() const -> pid_t { return ppid_; }
 
-		[[nodiscard]] inline auto effective_ppid() const -> pid_t { return effective_ppid_; }
+		[[nodiscard]] auto effective_ppid() const -> pid_t { return effective_ppid_; }
 
-		[[nodiscard]] inline auto processor() const
+		[[nodiscard]] auto processor() const
 		{
 			return pinned_processor_.has_value() ? pinned_processor_.value() : processor_;
 		}
 
-		[[nodiscard]] inline auto numa_node() const
+		[[nodiscard]] auto numa_node() const
 		{
 			return pinned_numa_node_.has_value() ? pinned_numa_node_.value() : numa_node_of_cpu(processor_);
 		}
 
-		[[nodiscard]] inline auto cpu_use() const { return cpu_use_; }
+		[[nodiscard]] auto cpu_use() const { return cpu_use_; }
 
-		[[nodiscard]] inline auto path() const { return path_; }
+		[[nodiscard]] auto path() const { return path_; }
 
-		[[nodiscard]] inline auto lwp() const { return lwp_; }
+		[[nodiscard]] auto lwp() const { return lwp_; }
 
-		[[nodiscard]] inline auto migratable() const { return migratable_; }
+		[[nodiscard]] auto migratable() const { return migratable_; }
 
-		[[nodiscard]] inline auto state() const { return state_; }
+		[[nodiscard]] auto state() const { return state_; }
 
-		[[nodiscard]] inline auto running() const { return state_ == RUNNING_CHAR; }
+		[[nodiscard]] auto running() const { return state_ == RUNNING_CHAR; }
 
-		[[nodiscard]] inline auto pgrp() const { return pgrp_; }
+		[[nodiscard]] auto pgrp() const { return pgrp_; }
 
-		[[nodiscard]] inline auto session() const { return session_; }
+		[[nodiscard]] auto session() const { return session_; }
 
-		[[nodiscard]] inline auto tty_nr() const { return tty_nr_; }
+		[[nodiscard]] auto tty_nr() const { return tty_nr_; }
 
-		[[nodiscard]] inline auto tpgid() const { return tpgid_; }
+		[[nodiscard]] auto tpgid() const { return tpgid_; }
 
-		[[nodiscard]] inline auto flags() const { return flags_; }
+		[[nodiscard]] auto flags() const { return flags_; }
 
-		[[nodiscard]] inline auto minflt() const { return minflt_; }
+		[[nodiscard]] auto minflt() const { return minflt_; }
 
-		[[nodiscard]] inline auto cminflt() const { return cminflt_; }
+		[[nodiscard]] auto cminflt() const { return cminflt_; }
 
-		[[nodiscard]] inline auto majflt() const { return majflt_; }
+		[[nodiscard]] auto majflt() const { return majflt_; }
 
-		[[nodiscard]] inline auto cmajflt() const { return cmajflt_; }
+		[[nodiscard]] auto cmajflt() const { return cmajflt_; }
 
-		[[nodiscard]] inline auto utime() const { return utime_; }
+		[[nodiscard]] auto utime() const { return utime_; }
 
-		[[nodiscard]] inline auto stime() const { return stime_; }
+		[[nodiscard]] auto stime() const { return stime_; }
 
-		[[nodiscard]] inline auto cutime() const { return cutime_; }
+		[[nodiscard]] auto cutime() const { return cutime_; }
 
-		[[nodiscard]] inline auto cstime() const { return cstime_; }
+		[[nodiscard]] auto cstime() const { return cstime_; }
 
-		[[nodiscard]] inline auto time() const { return time_; }
+		[[nodiscard]] auto time() const { return time_; }
 
-		[[nodiscard]] inline auto priority() const { return priority_; }
+		[[nodiscard]] auto priority() const { return priority_; }
 
-		[[nodiscard]] inline auto nice() const { return nice_; }
+		[[nodiscard]] auto nice() const { return nice_; }
 
-		[[nodiscard]] inline auto num_threads() const { return num_threads_; }
+		[[nodiscard]] auto num_threads() const { return num_threads_; }
 
-		[[nodiscard]] inline auto starttime() const { return starttime_; }
+		[[nodiscard]] auto starttime() const { return starttime_; }
 
-		[[nodiscard]] inline auto st_uid() const { return st_uid_; }
+		[[nodiscard]] auto st_uid() const { return st_uid_; }
 
-		[[nodiscard]] inline auto exit_signal() const { return exit_signal_; }
+		[[nodiscard]] auto exit_signal() const { return exit_signal_; }
 
-		inline void update()
+		[[nodiscard]] auto last_update() const { return last_update_; }
+
+		void update()
 		{
 			// Update the values from the stat file
 			read_stat_file();
@@ -501,13 +521,13 @@ namespace proc_watcher
 			update_list_of_children();
 		}
 
-		[[nodiscard]] inline auto children() const { return children_; }
+		[[nodiscard]] auto children() const { return children_; }
 
-		[[nodiscard]] inline auto tasks() const { return tasks_; }
+		[[nodiscard]] auto tasks() const { return tasks_; }
 
-		[[nodiscard]] inline auto children_and_tasks() const { return ranges::views::concat(children_, tasks_); }
+		[[nodiscard]] auto children_and_tasks() const { return ranges::views::concat(children_, tasks_); }
 
-		inline void pin_processor(const int processor)
+		void pin_processor(const int processor)
 		{
 			if (pinned_processor_.has_value() and std::cmp_equal(pinned_processor_.value(), processor)) { return; }
 
@@ -524,14 +544,14 @@ namespace proc_watcher
 			pinned_processor_ = processor;
 		}
 
-		inline void pin_processor()
+		void pin_processor()
 		{
 			if (pinned_processor_.has_value()) { return; }
 
 			pin_processor(processor_);
 		}
 
-		inline void pin_numa_node(const int numa_node)
+		void pin_numa_node(const int numa_node)
 		{
 			if (pinned_numa_node_.has_value() and std::cmp_equal(pinned_numa_node_.value(), numa_node)) { return; }
 
@@ -552,20 +572,23 @@ namespace proc_watcher
 			pinned_numa_node_ = numa_node;
 		}
 
-		inline void pin_numa_node()
+		void pin_numa_node()
 		{
 			if (pinned_numa_node_.has_value()) { return; }
 
 			pin_numa_node(numa_node());
 		}
 
-		inline void unpin()
+		void unpin()
 		{
 			if (not pinned_processor_.has_value() and not pinned_numa_node_.has_value()) { return; }
 
 			cpu_set_t affinity;
 			sched_getaffinity(0, sizeof(cpu_set_t),
 			                  &affinity); // Gets this process' affinity (supposed to be the default)
+
+			pinned_processor_ = std::nullopt;
+			pinned_numa_node_ = std::nullopt;
 
 			if (__glibc_unlikely(sched_setaffinity(pid_, sizeof(cpu_set_t), &affinity)))
 			{
