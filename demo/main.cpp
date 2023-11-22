@@ -21,7 +21,7 @@ struct Options
 
 	static constexpr auto DEFAULT_TIME    = 30.0;
 	static constexpr auto DEFAULT_DT      = 1.0;
-	static constexpr auto DEFAULT_CPU_USE = 80.0;
+	static constexpr auto DEFAULT_CPU_USE = -1.0;
 
 	bool debug     = DEFAULT_DEBUG;
 	bool profile   = DEFAULT_PROFILE;
@@ -59,9 +59,7 @@ void clean_end(const int signal, [[maybe_unused]] siginfo_t * const info, [[mayb
 
 auto run_child(const std::string & command)
 {
-	const auto pid = fork();
-
-	if (pid == 0)
+	if (const auto pid = fork(); pid == 0)
 	{
 		// Child process
 		execlp(command.c_str(), command.c_str(), nullptr);
@@ -89,21 +87,19 @@ auto run_child(const std::string & command)
 	}
 }
 
-auto parse_options(const int argc, const char * argv[])
+void parse_options(CLI::App & app, const int argc, const char * argv[])
 {
-	CLI::App app{ "Demo of proc_watcher" };
-
 	app.add_flag("-d,--debug", options.debug, "Debug output");
-	app.add_flag("-p,--profile", options.profile, "Profile output");
+	app.add_flag("-p,--profile", options.profile, "Profile children processes");
 	app.add_flag("-m,--migration", options.migration, "Migrate child process to random CPU");
 
-	app.add_option("-t,--time", options.time, "Time to run the demo for");
-	app.add_option("-s,--dt", options.dt, "Time step for the demo");
-	app.add_option("-c,--cpu", options.cpu_use, "Minimum CPU usage to show processes");
+	app.add_option("-t,--time", options.time, "Time to run (seconds) the demo for");
+	app.add_option("-s,--dt", options.dt, "Time step (seconds) for the demo");
+	app.add_option("-c,--cpu", options.cpu_use, "Minimum CPU usage (0-100%) to show processes");
 
-	app.add_option("-r,--run", options.child_process, "Child process to run");
+	app.add_option("-r,--run", options.child_process, "Child process (command) to run");
 
-	CLI11_PARSE(app, argc, argv)
+	app.parse(argc, argv);
 
 	if (options.debug) { spdlog::set_level(spdlog::level::debug); }
 
@@ -120,8 +116,6 @@ auto parse_options(const int argc, const char * argv[])
 		if (options.child_process.empty()) { spdlog::debug("\tChild process: None"); }
 		else { spdlog::debug("\tChild process (PID {}): {}", global.child_pid, options.child_process); }
 	}
-
-	return EXIT_SUCCESS;
 }
 
 
@@ -176,40 +170,70 @@ void update_tree()
 
 void most_CPU_consuming_procs()
 {
+	const auto high_cpu_use = [&](const auto & proc) {
+		return proc.cpu_use() > options.cpu_use;
+	};
+
 	// Print the most CPU consuming processes
 	spdlog::info("Most CPU consuming processes ({}%):", options.cpu_use);
-	for (const auto & cpu_proc :
-	     global.processes | ranges::views::filter([&](const auto & proc) { return proc.cpu_use() > options.cpu_use; }))
+	for (const auto & cpu_proc : global.processes | ranges::views::filter(high_cpu_use))
 	{
-		spdlog::info("\tPID {}. CPU {} at {:>.2f}%. \"{}\"", cpu_proc.pid(), cpu_proc.processor(), cpu_proc.cpu_use(),
-		             cpu_proc.cmdline());
+		const auto update_seconds_ago =
+		    std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - cpu_proc.last_update()).count();
+		spdlog::info("\tPID {}. Update {} ago. CPU {} at {:>.2f}%. \"{}\"", cpu_proc.pid(),
+		             format_seconds(update_seconds_ago), cpu_proc.processor(), cpu_proc.cpu_use(), cpu_proc.cmdline());
 	}
 }
 
 void print_children_info()
 {
 	// If the child process does NOT exist, return -> Nothing to do...
-	if (std::cmp_equal(global.child_pid, 0)) { return; }
+	if (std::cmp_equal(global.child_pid, 0))
+	{
+		spdlog::warn("No child process to profile.");
+		return;
+	}
 
 	// Print information about the child process
 	spdlog::info("Child process(es):");
-	const auto & child         = global.processes.get(global.child_pid)->get();
-	const auto & children_pids = child->children_and_tasks();
+	const auto & child_opt = global.processes.get(global.child_pid);
 
-	for (const auto & child_pid : children_pids)
+	if (not child_opt)
 	{
-		const auto & proc = global.processes.get(child_pid)->get();
-		spdlog::info("\tPID {}. CPU {} at {:>.2f}%. \"{}\"", proc->pid(), proc->processor(), proc->cpu_use(),
-		             proc->cmdline());
+		spdlog::error("\tPID {} not found in process tree.", global.child_pid);
+		return;
+	}
+
+	for (const auto & child_pid : child_opt->get()->children_and_tasks())
+	{
+		const auto & proc_opt = global.processes.get(child_pid);
+
+		if (not proc_opt)
+		{
+			spdlog::error("\tPID {} not found in process tree.", child_pid);
+			continue;
+		}
+
+		const auto & proc = proc_opt->get();
+		const auto   update_seconds_ago =
+		    std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - proc->last_update()).count();
+		spdlog::info("\tPID {}. Updated {} ago. CPU {} at {:>.2f}%. \"{}\"", proc->pid(),
+		             format_seconds(update_seconds_ago), proc->processor(), proc->cpu_use(), proc->cmdline());
 	}
 }
 
 void migrate_random_child()
 {
-	// If "migration" flag is not set, return -> Nothing to do...
-	if (not options.migration) { return; }
+	const auto child_proc_opt = global.processes.get(global.child_pid);
 
-	const auto & children_pids = global.processes.get(global.child_pid)->get()->children_and_tasks();
+	if (not child_proc_opt)
+	{
+		spdlog::error("Child process (PID {}) not found in process tree.", global.child_pid);
+		return;
+	}
+
+	const auto & child_proc    = child_proc_opt->get();
+	const auto & children_pids = child_proc->children_and_tasks();
 
 	// Select a random CPU
 	static const auto n_cpus = std::thread::hardware_concurrency();
@@ -229,7 +253,20 @@ auto main(const int argc, const char * argv[]) -> int
 {
 	try
 	{
-		std::ignore = parse_options(argc, argv);
+		CLI::App app{ "Demo of proc_watcher" };
+
+		try
+		{
+			parse_options(app, argc, argv);
+		}
+		catch (const CLI::ParseError & e)
+		{
+			return app.exit(e);
+		}
+		catch (...)
+		{
+			return EXIT_FAILURE;
+		}
 
 		spdlog::info("Demo of proc_watcher");
 
@@ -243,11 +280,11 @@ auto main(const int argc, const char * argv[]) -> int
 			const auto loop_time = measure([&] {
 				update_tree();
 
-				most_CPU_consuming_procs();
+				if (options.cpu_use >= 0.0) { most_CPU_consuming_procs(); }
 
-				print_children_info();
+				if (options.profile) { print_children_info(); }
 
-				migrate_random_child();
+				if (options.migration) { migrate_random_child(); }
 			});
 
 			sleep_time = options.dt - loop_time;

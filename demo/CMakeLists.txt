@@ -6,7 +6,9 @@ project("proc_watcher_demo" CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp
+        ../include/proc_watcher/process.hpp
+        ../include/proc_watcher/proc_watcher.hpp)
 
 set(CPM_USE_LOCAL_PACKAGES ON)
 set(CPM_USE_NAMED_CACHE_DIRECTORIES ON)
