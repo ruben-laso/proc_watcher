@@ -375,21 +375,14 @@ namespace proc_watcher
 			processes_.erase(proc_it);
 		}
 
-		void update(const pid_t root = ROOT)
+		void update(const pid_t root, std::set<pid_t> & updated_pids)
 		{
 			namespace fs = std::filesystem;
 
 			// Pair for PID and the /proc path
 			using pid_path_t = std::pair<pid_t, std::optional<fs::path>>;
 
-			// Get all the children of the root PID to know which processes had died since the last update
-			std::set<pid_t> all_children_of_root = all_children_of(root);
-
-			// Set of updated PIDs to avoid updating the same process twice
-			std::set<pid_t> updated_pids;
-
-			// Set of PIDs to remove from the process tree (processes that could not be parsed)
-			std::set<pid_t> to_remove;
+			std::set<pid_t> old_updated_pids = updated_pids;
 
 			// Queue of PIDs to update
 			std::queue<pid_path_t> to_update;
@@ -414,10 +407,7 @@ namespace proc_watcher
 				try
 				{
 					// Insert the process or update it
-					if (proc_it == processes_.end())
-					{
-						proc_ptr = insert(pid, path.string());
-					}
+					if (proc_it == processes_.end()) { proc_ptr = insert(pid, path.string()); }
 					else
 					{
 						proc_ptr = proc_it->second;
@@ -428,18 +418,14 @@ namespace proc_watcher
 					// Add the PID to the updated PIDs
 					updated_pids.emplace(pid);
 				}
-				catch ([[maybe_unused]] const std::exception & e)
+				catch (...)
 				{
-					// Couldn't create a new process
-					// Remove the process from the tree
-					to_remove.emplace(pid);
 					continue;
 				}
 
 				// Update its tasks
 				for (const auto & task : proc_ptr->tasks())
 				{
-					// Check if
 					to_update.emplace(task, path / std::to_string(pid) / "task");
 				}
 
@@ -450,15 +436,60 @@ namespace proc_watcher
 				}
 			}
 
-			// Check not updated processes
-			ranges::set_difference(all_children_of_root, updated_pids, std::inserter(to_remove, to_remove.end()));
+			std::set<pid_t> diff;
+			ranges::set_difference(updated_pids, old_updated_pids, std::inserter(diff, diff.end()));
+		}
 
-			// Remove the processes that couldn't be updated
-			// or that are not in the tree anymore
-			for (const auto & pid : to_remove)
+		void update()
+		{
+			namespace fs = std::filesystem;
+
+			// Set of updated PIDs to avoid updating the same process twice
+			std::set<pid_t> updated_pids;
+
+			// Set of PIDs to remove from the process tree (processes that could not be parsed)
+			std::set<pid_t> to_remove;
+
+			for (const auto & entry : fs::directory_iterator("/proc"))
 			{
-				erase(pid);
+				const auto & path     = entry.path();
+				const auto & path_str = path.filename().string();
+
+				// Check if the entry is a directory
+				if (not fs::is_directory(path)) { continue; }
+				// Check if the entry is a number (checking the first character is enough)
+				if (std::isdigit(path_str[0]) == 0) { continue; }
+
+				const pid_t pid = std::stoi(path_str);
+
+				// Check if the PID is already updated
+				if (updated_pids.contains(pid)) { continue; }
+
+				// Update in "tree-mode"
+				update(pid, updated_pids);
 			}
+
+			// Make sure that all processes know their children/tasks
+			for (const auto & proc : ranges::views::values(processes_))
+			{
+				if (proc->pid() == ROOT) { continue; }
+
+				const auto ppid = proc->ppid();
+
+				// Get the parent process
+				auto parent_opt = get(ppid);
+				if (not parent_opt.has_value()) { continue; }
+				auto & parent = *parent_opt.value();
+
+				// Add the process to the parent
+				if (proc->lwp()) { parent.add_task(proc->pid()); }
+				else { parent.add_child(proc->pid()); }
+			}
+
+			// Remove the processes that couldn't be updated or that are not in the tree anymore
+			ranges::set_difference(processes_ | ranges::views::keys, updated_pids,
+			                       std::inserter(to_remove, to_remove.end()));
+			ranges::for_each(to_remove, [this](const auto & pid) { erase(pid); });
 		}
 
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &

@@ -433,9 +433,8 @@ namespace proc_watcher
 				// Find the parent PID of the LWP -> /proc/<pid>/task/<tid>
 				const auto split = ranges::views::split(dirname, "/") | ranges::to<std::vector<std::string>>();
 
-				if (split.size() < 2) { throw std::runtime_error("Could not retrieve PPID of LWP"); }
-
-				effective_ppid_ = std::stoi(split[2]);
+				if (std::cmp_greater_equal(split.size(), 2)) { effective_ppid_ = std::stoi(split[1]); }
+				else { effective_ppid_ = ppid_; }
 			}
 		}
 
@@ -523,7 +522,21 @@ namespace proc_watcher
 
 		[[nodiscard]] auto children() const { return children_; }
 
+		[[nodiscard]] auto add_child(const pid_t pid)
+		{
+			// If the child is already in the children/tasks list, do nothing
+			if (children_.contains(pid) or tasks_.contains(pid)) { return; }
+			children_.insert(pid);
+		}
+
 		[[nodiscard]] auto tasks() const { return tasks_; }
+
+		[[nodiscard]] auto add_task(const pid_t pid)
+		{
+			// If the child is already in the children/tasks list, do nothing
+			if (children_.contains(pid) or tasks_.contains(pid)) { return; }
+			tasks_.insert(pid);
+		}
 
 		[[nodiscard]] auto children_and_tasks() const { return ranges::views::concat(children_, tasks_); }
 
