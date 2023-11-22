@@ -489,7 +489,7 @@ namespace proc_watcher
 			// Remove the processes that couldn't be updated or that are not in the tree anymore
 			ranges::set_difference(processes_ | ranges::views::keys, updated_pids,
 			                       std::inserter(to_remove, to_remove.end()));
-			ranges::for_each(to_remove, [this](const auto & pid) { erase(pid); });
+			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
 		}
 
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &
