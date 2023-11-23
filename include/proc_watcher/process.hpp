@@ -44,7 +44,7 @@ namespace proc_watcher
 		constexpr static char STOPPED_CHAR  = 'T';
 
 	private:
-		std::shared_ptr<CPU_time> cpu_time_ = std::make_shared<CPU_time>();
+		std::reference_wrapper<const CPU_time> cpu_time_;
 
 		std::vector<pid_t> children_{}; // The children of this process.
 		std::vector<pid_t> tasks_{};    // The tasks (LWP) of this process.
@@ -215,7 +215,7 @@ namespace proc_watcher
 			// Update the process info from the stat file
 			manual_read_stat_file();
 
-			const auto period = cpu_time_->period();
+			const auto period = cpu_time_.get().period();
 
 			cpu_use_ = static_cast<float>(time_ - last_times_) / period * 100.0F;
 
@@ -331,8 +331,8 @@ namespace proc_watcher
 	public:
 		process() = delete;
 
-		explicit process(const pid_t pid, std::shared_ptr<CPU_time> cpu_time) :
-		    cpu_time_{ std::move(cpu_time) },
+		explicit process(const pid_t pid, const CPU_time & cpu_time) :
+		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
@@ -349,24 +349,8 @@ namespace proc_watcher
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
 		}
 
-		explicit process(const pid_t pid) :
-		    pid_(pid),
-		    // First guess to know if it is a LWP
-		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
-		    path_("/proc"),
-		    tasks_path_(tasks_folder()),
-		    children_path_(children_folder()),
-		    cmdline_(obtain_cmdline()),
-		    migratable_(is_migratable())
-		{
-			update();
-			effective_ppid_ = ppid_;
-
-			// Update lwp after parsing the stat file
-			lwp_ = is_userland_lwp() or is_kernel_lwp();
-		}
-
-		process(const pid_t pid, const std::string_view dirname, const std::optional<pid_t> ppid_opt = std::nullopt) :
+		process(const pid_t pid, const std::string_view dirname, const CPU_time & cpu_time) :
+		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
@@ -381,7 +365,6 @@ namespace proc_watcher
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
 
 			if (not lwp_) { effective_ppid_ = ppid_; }
-			else if (ppid_opt.has_value()) { effective_ppid_ = ppid_opt.value(); }
 			else
 			{
 				// Find the parent PID of the LWP -> /proc/<pid>/task/<tid>

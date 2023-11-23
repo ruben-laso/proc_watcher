@@ -18,6 +18,11 @@
 
 namespace proc_watcher
 {
+	static const auto write_into_bool_vector = [](std::vector<bool> & map, const auto & key, const auto & value) {
+		if (map.size() <= key) { map.resize(key + 1, false); }
+		map[key] = value;
+	};
+
 	// taken from https://stackoverflow.com/a/478960
 	template<size_t buff_length = 128>
 	auto exec_cmd(const std::string_view cmd, const bool truncate_final_newlines = true) -> std::string
@@ -59,7 +64,7 @@ namespace proc_watcher
 
 		static constexpr pid_t DEFAULT_ROOT = 1;
 
-		std::shared_ptr<CPU_time> cpu_time_ = std::make_shared<CPU_time>();
+		CPU_time cpu_time_ = {};
 
 		pid_t root_ = DEFAULT_ROOT;
 
@@ -83,12 +88,12 @@ namespace proc_watcher
 			for (const auto & task : proc->tasks())
 			{
 				const auto task_path = proc->path() / std::to_string(proc->pid()) / "task";
-				std::ignore = processes_.try_emplace(task, std::make_shared<process>(task, task_path.string()));
+				std::ignore = processes_.try_emplace(task, std::make_shared<process>(task, task_path.string(), cpu_time_));
 			}
 
 			for (const auto & child : proc->children())
 			{
-				std::ignore = processes_.try_emplace(child, std::make_shared<process>(child));
+				std::ignore = processes_.try_emplace(child, std::make_shared<process>(child, cpu_time_));
 			}
 		}
 
@@ -145,7 +150,7 @@ namespace proc_watcher
 			if (const auto proc_it = processes_.find(pid); proc_it not_eq processes_.end()) { return proc_it->second; }
 
 			// Otherwise, try to create a new process
-			auto proc_ptr = std::make_shared<process>(pid, path);
+			auto proc_ptr = std::make_shared<process>(pid, path, cpu_time_);
 			insert(proc_ptr);
 			return proc_ptr;
 		}
@@ -378,14 +383,13 @@ namespace proc_watcher
 			processes_.erase(proc_it);
 		}
 
-		void update(const pid_t root, std::set<pid_t> & updated_pids)
+		template<typename Bool_map>
+		void update(const pid_t root, Bool_map & updated_pids)
 		{
 			namespace fs = std::filesystem;
 
 			// Pair for PID and the /proc path
 			using pid_path_t = std::pair<pid_t, std::optional<fs::path>>;
-
-			std::set<pid_t> old_updated_pids = updated_pids;
 
 			// Queue of PIDs to update
 			std::queue<pid_path_t> to_update;
@@ -397,7 +401,7 @@ namespace proc_watcher
 				to_update.pop();
 
 				// Check if the PID is already updated
-				if (updated_pids.contains(pid)) { continue; }
+				if (updated_pids[pid]) { continue; }
 
 				// Find the process
 				auto proc_it = processes_.find(pid);
@@ -419,7 +423,7 @@ namespace proc_watcher
 					}
 
 					// Add the PID to the updated PIDs
-					updated_pids.emplace(pid);
+					write_into_bool_vector(updated_pids, pid, true);
 				}
 				catch (...)
 				{
@@ -438,22 +442,21 @@ namespace proc_watcher
 					to_update.emplace(child, std::nullopt);
 				}
 			}
-
-			std::set<pid_t> diff;
-			ranges::set_difference(updated_pids, old_updated_pids, std::inserter(diff, diff.end()));
 		}
 
 		void update()
 		{
 			namespace fs = std::filesystem;
 
-			cpu_time_->update();
+			cpu_time_.update();
+
+			const auto max_pid = ranges::max(processes_ | ranges::views::keys);
+
+			std::vector<bool> old_pids(max_pid + 1, false);
+			ranges::for_each(processes_ | ranges::views::keys, [&](const auto & pid) { old_pids[pid] = true; });
 
 			// Set of updated PIDs to avoid updating the same process twice
-			std::set<pid_t> updated_pids;
-
-			// Set of PIDs to remove from the process tree (processes that could not be parsed)
-			std::set<pid_t> to_remove;
+			std::vector<bool> updated_pids(max_pid + 1, false);
 
 			for (const auto & entry : fs::directory_iterator("/proc"))
 			{
@@ -468,7 +471,7 @@ namespace proc_watcher
 				const pid_t pid = std::stoi(path_str);
 
 				// Check if the PID is already updated
-				if (updated_pids.contains(pid)) { continue; }
+				if (updated_pids[pid]) { continue; }
 
 				// Update in "tree-mode"
 				update(pid, updated_pids);
@@ -491,9 +494,14 @@ namespace proc_watcher
 				else { parent.add_child(proc->pid()); }
 			}
 
+			// Set of PIDs to remove from the process tree (processes that could not be parsed)
+			std::vector<pid_t> to_remove;
+
 			// Remove the processes that couldn't be updated or that are not in the tree anymore
-			ranges::set_difference(processes_ | ranges::views::keys, updated_pids,
-			                       std::inserter(to_remove, to_remove.end()));
+			ranges::for_each(processes_ | ranges::views::keys, [&](const auto & pid) {
+				if (old_pids[pid] and not updated_pids[pid]) { to_remove.emplace_back(pid); }
+			});
+
 			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
 		}
 
