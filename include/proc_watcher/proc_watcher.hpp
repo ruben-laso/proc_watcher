@@ -13,6 +13,7 @@
 
 #include <range/v3/all.hpp>
 
+#include "cpu_time.hpp"
 #include "process.hpp"
 
 namespace proc_watcher
@@ -56,11 +57,13 @@ namespace proc_watcher
 		static constexpr const char * TREE_STR_OPEN = "+";            // TREE_STR_OPEN +
 		static constexpr const char * TREE_STR_SHUT = "\xe2\x94\x80"; // TREE_STR_SHUT ─
 
-		static constexpr pid_t ROOT = 1;
+		static constexpr pid_t DEFAULT_ROOT = 1;
+
+		std::shared_ptr<CPU_time> cpu_time_ = std::make_shared<CPU_time>();
+
+		pid_t root_ = DEFAULT_ROOT;
 
 		std::map<pid_t, std::shared_ptr<process>> processes_ = {};
-
-		std::shared_ptr<process> root_;
 
 		void insert(const std::shared_ptr<process> & proc_)
 		{
@@ -111,11 +114,11 @@ namespace proc_watcher
 		}
 
 	public:
-		process_tree() : root_(std::make_shared<process>(ROOT)) { processes_.emplace(ROOT, root_); }
+		process_tree() { insert(root_); }
 
-		explicit process_tree(const pid_t pid) : root_(std::make_shared<process>(pid))
+		explicit process_tree(const pid_t pid, const std::string_view path = "/proc") : root_(pid)
 		{
-			processes_.emplace(pid, root_);
+			insert(root_, path);
 		}
 
 		[[nodiscard]] auto begin() const
@@ -132,7 +135,7 @@ namespace proc_watcher
 
 		[[nodiscard]] auto size() const { return processes_.size(); }
 
-		[[nodiscard]] auto root() const -> pid_t { return root_->pid(); }
+		[[nodiscard]] auto root() const -> pid_t { return root_; }
 
 		[[nodiscard]] auto processes() const { return processes_ | ranges::views::values | ranges::views::indirect; }
 
@@ -444,6 +447,8 @@ namespace proc_watcher
 		{
 			namespace fs = std::filesystem;
 
+			cpu_time_->update();
+
 			// Set of updated PIDs to avoid updating the same process twice
 			std::set<pid_t> updated_pids;
 
@@ -472,7 +477,7 @@ namespace proc_watcher
 			// Make sure that all processes know their children/tasks
 			for (const auto & proc : ranges::views::values(processes_))
 			{
-				if (proc->pid() == ROOT) { continue; }
+				if (proc->pid() == root_) { continue; }
 
 				const auto ppid = proc->ppid();
 
@@ -495,8 +500,11 @@ namespace proc_watcher
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &
 		{
 			os << "Process tree with " << p.processes_.size() << " entries." << '\n';
-			const auto & root_proc = *p.root_;
-			p.print_level(os, root_proc);
+			const auto & root_opt = p.get(p.root());
+
+			if (not root_opt.has_value()) { return os; }
+
+			p.print_level(os, *root_opt.value());
 
 			return os;
 		}

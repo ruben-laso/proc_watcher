@@ -23,7 +23,8 @@
 #include <fmt/core.h> // for format
 
 #include <range/v3/all.hpp> // for views::split, views::to, views::concat
-#include <spdlog/spdlog.h>
+
+#include "cpu_time.hpp" // for CPU_time
 
 namespace proc_watcher
 {
@@ -34,7 +35,6 @@ namespace proc_watcher
 
 	public:
 		constexpr static std::string_view DEFAULT_PROC = "/proc";
-		constexpr static std::string_view DEF_CPU_STAT = "/proc/stat";
 
 		constexpr static char RUNNING_CHAR  = 'R';
 		constexpr static char SLEEPING_CHAR = 'S';
@@ -43,6 +43,8 @@ namespace proc_watcher
 		constexpr static char STOPPED_CHAR  = 'T';
 
 	private:
+		std::shared_ptr<CPU_time> cpu_time_ = std::make_shared<CPU_time>();
+
 		std::set<pid_t> children_{}; // The children of this process.
 		std::set<pid_t> tasks_{};    // The tasks (LWP) of this process.
 
@@ -212,7 +214,7 @@ namespace proc_watcher
 			// Update the process info from the stat file
 			manual_read_stat_file();
 
-			const auto period = scan_cpu_time();
+			const auto period = cpu_time_->period();
 
 			cpu_use_ = static_cast<float>(time_ - last_times_) / period * 100.0F;
 
@@ -226,87 +228,20 @@ namespace proc_watcher
 			last_update_ = std::chrono::high_resolution_clock::now();
 		}
 
-		auto scan_cpu_time(const std::string_view filename = DEF_CPU_STAT) -> float
-		{
-			static const auto N_CPUS = sysconf(_SC_NPROCESSORS_ONLN);
-
-			std::ifstream file(filename.data(), std::ios::in);
-
-			if (not file.is_open())
-			{
-				const auto error_str =
-				    fmt::format("Could not open file {}. Error {} ({})", filename, errno, strerror(errno));
-				throw std::runtime_error(error_str);
-			}
-
-			if (std::cmp_less_equal(N_CPUS, 0))
-			{
-				const auto error_str = fmt::format("Invalid number of CPUs: {}", N_CPUS);
-				throw std::runtime_error(error_str);
-			}
-
-			std::string cpu_str; // = "cpu "
-
-			unsigned long long int user_time   = 0;
-			unsigned long long int nice_time   = 0;
-			unsigned long long int system_time = 0;
-			unsigned long long int idle_time   = 0;
-			unsigned long long int io_wait     = 0;
-			unsigned long long int irq         = 0;
-			unsigned long long int soft_irq    = 0;
-			unsigned long long int steal       = 0;
-			unsigned long long int guest       = 0;
-			unsigned long long int guest_nice  = 0;
-
-			file >> cpu_str;
-			file >> user_time;
-			file >> nice_time;
-			file >> system_time;
-			file >> idle_time;
-			file >> io_wait;
-			file >> irq;
-			file >> soft_irq;
-			file >> steal;
-			file >> guest;
-			file >> guest_nice;
-
-			// Guest time is already accounted in user time
-			user_time = user_time - guest;
-			nice_time = nice_time - guest_nice;
-
-			const auto idle_all_time   = idle_time + io_wait;
-			const auto system_all_time = system_time + irq + soft_irq;
-			const auto virt_all_time   = guest + guest_nice;
-			const auto total_time = user_time + nice_time + system_all_time + idle_all_time + steal + virt_all_time;
-
-			const auto total_period = (total_time > last_total_time_) ? (total_time - last_total_time_) : 1;
-
-			last_total_time_ = total_time;
-
-			const auto period = static_cast<float>(total_period) / static_cast<float>(N_CPUS);
-
-			return period;
-		}
-
 		[[nodiscard]] auto update_list_of_tasks()
 		{
+			namespace fs = std::filesystem;
+
 			tasks_ = {};
 
-			if (not std::filesystem::exists(tasks_path_)) { return; }
+			if (not fs::exists(tasks_path_)) { return; }
 
 			// Tasks is a directory with subfolders named after the thread IDs
-			for (const auto & entry : std::filesystem::directory_iterator(tasks_path_))
+			for (const auto & entry : fs::directory_iterator(tasks_path_))
 			{
-				try
-				{
-					const auto thread_id = entry.path().filename().string();
-					tasks_.emplace(std::stoul(thread_id));
-				}
-				catch (const std::exception & e)
-				{
-					throw std::runtime_error(
-					    fmt::format("Error reading thread ID from {}: {}", entry.path().string(), e.what()));
-				}
+				const auto & path = entry.path().filename().c_str();
+				const auto   tid  = std::strtol(path, nullptr, 10);
+				tasks_.emplace(tid);
 			}
 
 			// Remove the main thread from the list
@@ -394,6 +329,24 @@ namespace proc_watcher
 
 	public:
 		process() = delete;
+
+		explicit process(const pid_t pid, std::shared_ptr<CPU_time> cpu_time) :
+		    cpu_time_{std::move( cpu_time )},
+		    pid_(pid),
+		    // First guess to know if it is a LWP
+		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
+		    path_("/proc"),
+		    tasks_path_(tasks_folder()),
+		    children_path_(children_folder()),
+		    cmdline_(obtain_cmdline()),
+		    migratable_(is_migratable())
+		{
+			update();
+			effective_ppid_ = ppid_;
+
+			// Update lwp after parsing the stat file
+			lwp_ = is_userland_lwp() or is_kernel_lwp();
+		}
 
 		explicit process(const pid_t pid) :
 		    pid_(pid),
