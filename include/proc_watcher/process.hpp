@@ -19,6 +19,7 @@
 #include <string>      // for string, to_string, getline
 #include <string_view> // for string_view
 #include <utility>     // for
+#include <vector>      // for vector
 
 #include <fmt/core.h> // for format
 
@@ -45,8 +46,8 @@ namespace proc_watcher
 	private:
 		std::shared_ptr<CPU_time> cpu_time_ = std::make_shared<CPU_time>();
 
-		std::set<pid_t> children_{}; // The children of this process.
-		std::set<pid_t> tasks_{};    // The tasks (LWP) of this process.
+		std::vector<pid_t> children_{}; // The children of this process.
+		std::vector<pid_t> tasks_{};    // The tasks (LWP) of this process.
 
 		pid_t pid_{}; // The process ID.
 
@@ -232,20 +233,20 @@ namespace proc_watcher
 		{
 			namespace fs = std::filesystem;
 
-			tasks_ = {};
+			tasks_.clear();
 
 			if (not fs::exists(tasks_path_)) { return; }
 
 			// Tasks is a directory with subfolders named after the thread IDs
-			for (const auto & entry : fs::directory_iterator(tasks_path_))
-			{
-				const auto & path = entry.path().filename().c_str();
-				const auto   tid  = std::strtol(path, nullptr, 10);
-				tasks_.emplace(tid);
-			}
+			auto entries = fs::directory_iterator(tasks_path_);
 
-			// Remove the main thread from the list
-			tasks_.erase(pid_);
+			auto tids = entries | // Get the entries, which are the tasks IDs
+			            ranges::views::filter([](const auto & e) { return e.is_directory(); }) |
+			            ranges::views::transform([](const auto & e) { return e.path().filename().c_str(); }) |
+			            ranges::views::transform([](const auto & e) { return std::strtol(e, nullptr, 10); }) |
+			            ranges::views::filter([&](const auto tid) { return std::cmp_not_equal(tid, pid_); });
+
+			ranges::for_each(tids, [&](const auto tid) { tasks_.emplace_back(tid); });
 		}
 
 		[[nodiscard]] auto update_list_of_children()
@@ -266,7 +267,7 @@ namespace proc_watcher
 
 			for (pid_t child_pid = 0; file >> child_pid;)
 			{
-				children_.emplace(child_pid);
+				children_.emplace_back(child_pid);
 			}
 		}
 
@@ -331,7 +332,7 @@ namespace proc_watcher
 		process() = delete;
 
 		explicit process(const pid_t pid, std::shared_ptr<CPU_time> cpu_time) :
-		    cpu_time_{std::move( cpu_time )},
+		    cpu_time_{ std::move(cpu_time) },
 		    pid_(pid),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
@@ -473,22 +474,24 @@ namespace proc_watcher
 			update_list_of_children();
 		}
 
-		[[nodiscard]] auto children() const { return children_; }
+		[[nodiscard]] auto children() const { return children_ | ranges::to<std::set<pid_t>>(); }
 
 		[[nodiscard]] auto add_child(const pid_t pid)
 		{
 			// If the child is already in the children/tasks list, do nothing
-			if (children_.contains(pid) or tasks_.contains(pid)) { return; }
-			children_.insert(pid);
+			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid)) { return; }
+			children_.emplace_back(pid);
+			ranges::actions::sort(children_);
 		}
 
-		[[nodiscard]] auto tasks() const { return tasks_; }
+		[[nodiscard]] auto tasks() const { return tasks_ | ranges::to<std::set<pid_t>>(); }
 
 		[[nodiscard]] auto add_task(const pid_t pid)
 		{
 			// If the child is already in the children/tasks list, do nothing
-			if (children_.contains(pid) or tasks_.contains(pid)) { return; }
-			tasks_.insert(pid);
+			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid)) { return; }
+			tasks_.emplace_back(pid);
+			ranges::actions::sort(tasks_);
 		}
 
 		[[nodiscard]] auto children_and_tasks() const { return ranges::views::concat(children_, tasks_); }
