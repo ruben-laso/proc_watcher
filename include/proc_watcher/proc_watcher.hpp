@@ -62,11 +62,9 @@ namespace proc_watcher
 		static constexpr const char * TREE_STR_OPEN = "+";            // TREE_STR_OPEN +
 		static constexpr const char * TREE_STR_SHUT = "\xe2\x94\x80"; // TREE_STR_SHUT ─
 
-		static constexpr pid_t DEFAULT_ROOT = 1;
+		static constexpr pid_t ROOT = 1;
 
 		CPU_time cpu_time_ = {};
-
-		pid_t root_ = DEFAULT_ROOT;
 
 		std::map<pid_t, std::shared_ptr<process>> processes_ = {};
 
@@ -87,8 +85,9 @@ namespace proc_watcher
 			// Add their tasks and children as well (if not already in the tree)
 			for (const auto & task : proc->tasks())
 			{
-				const auto task_path = proc->path() / std::to_string(proc->pid()) / "task";
-				std::ignore = processes_.try_emplace(task, std::make_shared<process>(task, task_path.string(), cpu_time_));
+				const auto task_path = proc->path() / "task" / std::to_string(task);
+				std::ignore =
+				    processes_.try_emplace(task, std::make_shared<process>(task, task_path.string(), cpu_time_));
 			}
 
 			for (const auto & child : proc->children())
@@ -119,12 +118,9 @@ namespace proc_watcher
 		}
 
 	public:
-		process_tree() { insert(root_); }
+		process_tree() { update(); }
 
-		explicit process_tree(const pid_t pid, const std::string_view path = "/proc") : root_(pid)
-		{
-			insert(root_, path);
-		}
+		[[nodiscard]] static auto root() -> pid_t { return ROOT; }
 
 		[[nodiscard]] auto begin() const
 		{
@@ -140,11 +136,9 @@ namespace proc_watcher
 
 		[[nodiscard]] auto size() const { return processes_.size(); }
 
-		[[nodiscard]] auto root() const -> pid_t { return root_; }
-
 		[[nodiscard]] auto processes() const { return processes_ | ranges::views::values | ranges::views::indirect; }
 
-		auto insert(const pid_t pid, const std::string_view path = "/proc") -> std::shared_ptr<process>
+		auto insert(const pid_t pid, const std::filesystem::path & path) -> std::shared_ptr<process>
 		{
 			// Try to find it within the process tree. If the process is found, nothing to do...
 			if (const auto proc_it = processes_.find(pid); proc_it not_eq processes_.end()) { return proc_it->second; }
@@ -154,6 +148,8 @@ namespace proc_watcher
 			insert(proc_ptr);
 			return proc_ptr;
 		}
+
+		auto insert(const pid_t pid) -> std::shared_ptr<process> { return insert(pid, fmt::format("/proc/{}", pid)); }
 
 		[[nodiscard]] auto get(const pid_t pid) -> std::optional<std::shared_ptr<process>>
 		{
@@ -407,7 +403,7 @@ namespace proc_watcher
 				auto proc_it = processes_.find(pid);
 
 				// If the process is not found, try to create a new one
-				auto path = path_opt.value_or("/proc");
+				auto path = path_opt.value_or(fmt::format("/proc/{}", pid));
 
 				std::shared_ptr<process> proc_ptr;
 
@@ -433,7 +429,7 @@ namespace proc_watcher
 				// Update its tasks
 				for (const auto & task : proc_ptr->tasks())
 				{
-					to_update.emplace(task, path / std::to_string(pid) / "task");
+					to_update.emplace(task, path / "task" / std::to_string(task));
 				}
 
 				// Add the children to the queue
@@ -450,7 +446,7 @@ namespace proc_watcher
 
 			cpu_time_.update();
 
-			const auto max_pid = ranges::max(processes_ | ranges::views::keys);
+			const auto max_pid = processes_.empty() ? 99'999 : ranges::max(processes_ | ranges::views::keys);
 
 			std::vector<bool> old_pids(max_pid + 1, false);
 			ranges::for_each(processes_ | ranges::views::keys, [&](const auto & pid) { old_pids[pid] = true; });
@@ -460,15 +456,15 @@ namespace proc_watcher
 
 			for (const auto & entry : fs::directory_iterator("/proc"))
 			{
-				const auto & path     = entry.path();
-				const auto & path_str = path.filename().string();
-
 				// Check if the entry is a directory
-				if (not fs::is_directory(path)) { continue; }
-				// Check if the entry is a number (checking the first character is enough)
-				if (std::isdigit(path_str[0]) == 0) { continue; }
+				if (not fs::is_directory(entry)) { continue; }
 
-				const pid_t pid = std::stoi(path_str);
+				const auto & path = entry.path().filename().string();
+
+				// Check if the entry is a number (checking the first character is enough)
+				if (std::isdigit(path[0]) == 0) { continue; }
+
+				const pid_t pid = std::stoi(path);
 
 				// Check if the PID is already updated
 				if (updated_pids[pid]) { continue; }
@@ -480,7 +476,7 @@ namespace proc_watcher
 			// Make sure that all processes know their children/tasks
 			for (const auto & proc : ranges::views::values(processes_))
 			{
-				if (proc->pid() == root_) { continue; }
+				if (proc->pid() == ROOT) { continue; }
 
 				const auto ppid = proc->ppid();
 

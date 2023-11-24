@@ -51,6 +51,8 @@ namespace proc_watcher
 
 		pid_t pid_{}; // The process ID.
 
+		std::filesystem::path path_{}; // The path to the process folder.
+
 		pid_t effective_ppid_{}; // The parent process ID.
 		                         // PPID is the same for "main" threads and its "LWP" threads.
 		                         // This keeps track of the "main" thread when this process is a "LWP".
@@ -60,6 +62,7 @@ namespace proc_watcher
 		bool lwp_        = false; // Is a Lightweight Process (or a thread).
 		                          // True if this process has the same command line as its parent
 		                          // or "ps" command is empty.
+		bool task_       = false; // Is a task of the effective parent. Path contains "task" somewhere.
 
 		char state_{}; // State of the process.
 
@@ -106,12 +109,6 @@ namespace proc_watcher
 		unsigned long long last_times_{}; // (utime + stime). Updated when the process is updated.
 		float              cpu_use_{};    // Portion of CPU time used (between 0 and 1).
 
-		unsigned long long int last_total_time_{}; // Last total time of the CPU. Used for the calculation of cpu_use_.
-
-		std::filesystem::path path_{};          // The path to the process folder.
-		std::filesystem::path children_path_{}; // The path to the children file.
-		std::filesystem::path tasks_path_{};    // The path to the tasks file.
-
 		std::string cmdline_{}; // The command line of this process.
 
 		std::chrono::time_point<std::chrono::high_resolution_clock> last_update_{}; // Last time the process was updated.
@@ -145,10 +142,8 @@ namespace proc_watcher
 
 		void manual_read_stat_file()
 		{
-			const auto pid_str = std::to_string(pid_);
-			const auto stat_file_path =
-			    lwp_ ? path_ / pid_str / "stat" :                                         // LWP
-			           std::filesystem::path("/proc") / pid_str / "task" / pid_str / "stat"; // Main thread
+			const auto    pid_str        = std::to_string(pid_);
+			const auto    stat_file_path = task_ ? path_ / "stat" : path_ / "task" / pid_str / "stat";
 			std::ifstream stat_file{ stat_file_path };
 
 			if (not stat_file.is_open() or not stat_file.good())
@@ -231,36 +226,36 @@ namespace proc_watcher
 
 		[[nodiscard]] auto update_list_of_tasks()
 		{
-			namespace fs = std::filesystem;
+			// A task cannot have tasks
+			if (task_) { return; }
 
 			tasks_.clear();
 
-			if (not fs::exists(tasks_path_)) { return; }
-
 			// Tasks is a directory with subfolders named after the thread IDs
-			auto entries = fs::directory_iterator(tasks_path_);
+			for (const auto & entry : std::filesystem::directory_iterator(path_ / "task"))
+			{
+				if (not entry.is_directory()) { continue; }
 
-			auto tids = entries | // Get the entries, which are the tasks IDs
-			            ranges::views::filter([](const auto & e) { return e.is_directory(); }) |
-			            ranges::views::transform([](const auto & e) { return e.path().filename().c_str(); }) |
-			            ranges::views::transform([](const auto & e) { return std::strtol(e, nullptr, 10); }) |
-			            ranges::views::filter([&](const auto tid) { return std::cmp_not_equal(tid, pid_); });
+				const auto tid = std::strtol(entry.path().filename().c_str(), nullptr, 10);
 
-			ranges::for_each(tids, [&](const auto tid) { tasks_.emplace_back(tid); });
+				if (std::cmp_equal(tid, pid_)) { continue; }
+
+				tasks_.emplace_back(tid);
+			}
 		}
 
 		[[nodiscard]] auto update_list_of_children()
 		{
 			children_ = {};
 
-			if (not std::filesystem::exists(children_path_)) { return; }
+			const auto children_path = task_ ? path_ / "children" : path_ / "task" / std::to_string(pid_) / "children";
 
 			// Children is a file with a list of PIDs
-			std::ifstream file(children_path_, std::ios::in);
+			std::ifstream file(children_path, std::ios::in);
 
 			if (not file.is_open())
 			{
-				const auto error_str = fmt::format("Could not open file {}. Error {} ({})", children_path_.string(),
+				const auto error_str = fmt::format("Could not open file {}. Error {} ({})", children_path.string(),
 				                                   errno, strerror(errno));
 				throw std::runtime_error(error_str);
 			}
@@ -281,22 +276,11 @@ namespace proc_watcher
 			return std::cmp_equal(st_uid_, uid());
 		}
 
-		[[nodiscard]] auto tasks_folder() const { return path_ / std::to_string(pid_) / "task"; }
-
-		[[nodiscard]] auto children_folder() const
-		{
-			static const std::string CHILDREN_FILE("children");
-			// Straightforward if the process is a LWP
-			if (lwp_) { return path_ / CHILDREN_FILE; }
-			// Otherwise, we need to go through the tasks folder
-			return tasks_folder() / std::to_string(pid_) / CHILDREN_FILE;
-		}
-
 		[[nodiscard]] auto obtain_cmdline()
 		{
 			try
 			{
-				std::ifstream cmdline_file(path_ / std::to_string(pid_) / "cmdline");
+				std::ifstream cmdline_file(path_ / "cmdline");
 
 				std::ostringstream cmdline_stream;
 
@@ -308,7 +292,8 @@ namespace proc_watcher
 
 				static constexpr auto whitespaces{ " \t\f\v\n\r" };
 
-				cmdline.erase(cmdline.find_last_not_of(whitespaces));
+				const auto it = cmdline.find_last_not_of(whitespaces);
+				if (it not_eq std::string::npos) { cmdline.erase(it); }
 
 				return cmdline;
 			}
@@ -334,11 +319,10 @@ namespace proc_watcher
 		explicit process(const pid_t pid, const CPU_time & cpu_time) :
 		    cpu_time_(cpu_time),
 		    pid_(pid),
+		    path_(fmt::format("/proc/{}", pid)),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
-		    path_("/proc"),
-		    tasks_path_(tasks_folder()),
-		    children_path_(children_folder()),
+		    task_(path_.string().find("task") != std::string::npos),
 		    cmdline_(obtain_cmdline()),
 		    migratable_(is_migratable())
 		{
@@ -349,14 +333,13 @@ namespace proc_watcher
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
 		}
 
-		process(const pid_t pid, const std::string_view dirname, const CPU_time & cpu_time) :
+		process(const pid_t pid, std::filesystem::path path, const CPU_time & cpu_time) :
 		    cpu_time_(cpu_time),
 		    pid_(pid),
+		    path_(std::move(path)),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
-		    path_(dirname),
-		    tasks_path_(tasks_folder()),
-		    children_path_(children_folder()),
+		    task_(path_.string().find("task") != std::string::npos),
 		    cmdline_(obtain_cmdline()),
 		    migratable_(is_migratable())
 		{
@@ -364,15 +347,14 @@ namespace proc_watcher
 
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
 
-			if (not lwp_) { effective_ppid_ = ppid_; }
-			else
+			if (task_)
 			{
 				// Find the parent PID of the LWP -> /proc/<pid>/task/<tid>
-				const auto split = ranges::views::split(dirname, "/") | ranges::to<std::vector<std::string>>();
+				const auto parent_path = path_.parent_path().parent_path();
 
-				if (std::cmp_greater_equal(split.size(), 2)) { effective_ppid_ = std::stoi(split[1]); }
-				else { effective_ppid_ = ppid_; }
+				effective_ppid_ = static_cast<pid_t>(std::strtol(parent_path.filename().c_str(), nullptr, 10));
 			}
+			else { effective_ppid_ = ppid_; }
 		}
 
 		[[nodiscard]] auto cmdline() const { return cmdline_; }
