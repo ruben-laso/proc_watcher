@@ -8,7 +8,7 @@ It is based on the `procfs` filesystem, which is a virtual filesystem that provi
 `prox` parses the `/proc` filesystem to obtain information about the processes running on the system, so the user can access this information programmatically.
 
 ## Installation
-`prox` is a header-only library, so installing should be fairly easy.
+`prox` is a header-only library, so installing should be fairly easy (make sure you have the dependencies installed).
 You can simply copy the header files to your project directory and include them in your source code.
 
 Or, you can install it system-wide by running the following commands:
@@ -18,6 +18,16 @@ cd build
 cmake ..
 sudo cmake --build . --target install
 ```
+
+### Dependencies
+`prox` depends on the following libraries:
+- [range-v3](https://github.com/ericniebler/range-v3)
+- [fmt](https://github.com/fmtlib/fmt)
+- libnuma
+
+Additionally, `prox` example depends on the following libraries:
+- [spdlog](https://github.com/gabime/spdlog)
+- [CLI11](https://github.com/CLIUtils/CLI11)
 
 ## Usage
 Wiki is WIP. For now, you can check the [example](example) directory for examples.
