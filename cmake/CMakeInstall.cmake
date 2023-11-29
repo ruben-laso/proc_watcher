@@ -3,10 +3,11 @@ if (PROJECT_IS_TOP_LEVEL)
             CMAKE_INSTALL_INCLUDEDIR "include/${PROJECT_NAME}-${PROJECT_VERSION}"
             CACHE PATH ""
     )
+    set_property(CACHE CMAKE_INSTALL_INCLUDEDIR PROPERTY TYPE PATH)
 endif ()
 
 # Project is configured with no languages, so tell GNUInstallDirs the lib dir
-set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")
+# set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -37,9 +38,10 @@ set(
         ${PROJECT_NAME}_INSTALL_CMAKEDIR "${CMAKE_INSTALL_DATADIR}/${package}"
         CACHE PATH "CMake package config location relative to the install prefix"
 )
+set_property(CACHE ${PROJECT_NAME}_INSTALL_CMAKEDIR PROPERTY TYPE PATH)
 mark_as_advanced(${PROJECT_NAME}_INSTALL_CMAKEDIR)
 
-set(project_config_in "${CMAKE_CURRENT_LIST_DIR}/proc_watcherConfig.cmake.in")
+set(project_config_in "${CMAKE_CURRENT_LIST_DIR}/proxConfig.cmake.in")
 
 configure_package_config_file(
         "${project_config_in}"

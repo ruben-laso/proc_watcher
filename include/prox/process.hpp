@@ -27,7 +27,7 @@
 
 #include "cpu_time.hpp" // for CPU_time
 
-namespace proc_watcher
+namespace prox
 {
 	class process
 	{
@@ -309,7 +309,7 @@ namespace proc_watcher
 			}
 		}
 
-		[[nodiscard]] auto is_userland_lwp() const { return pid_ not_eq pgrp_; }
+		[[nodiscard]] auto is_userland_lwp() const { return std::cmp_not_equal(pid_, pgrp_); }
 
 		[[nodiscard]] auto is_kernel_lwp() const { return static_cast<bool>(flags_ & PF_KTHREAD); }
 
@@ -320,11 +320,11 @@ namespace proc_watcher
 		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    path_(fmt::format("/proc/{}", pid)),
+		    migratable_(is_migratable()),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
 		    task_(path_.string().find("task") != std::string::npos),
-		    cmdline_(obtain_cmdline()),
-		    migratable_(is_migratable())
+		    cmdline_(obtain_cmdline())
 		{
 			update();
 			effective_ppid_ = ppid_;
@@ -337,11 +337,11 @@ namespace proc_watcher
 		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    path_(std::move(path)),
+		    migratable_(is_migratable()),
 		    // First guess to know if it is a LWP
 		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
 		    task_(path_.string().find("task") != std::string::npos),
-		    cmdline_(obtain_cmdline()),
-		    migratable_(is_migratable())
+		    cmdline_(obtain_cmdline())
 		{
 			update();
 
@@ -538,4 +538,4 @@ namespace proc_watcher
 			return os;
 		}
 	};
-} // namespace proc_watcher
+} // namespace prox

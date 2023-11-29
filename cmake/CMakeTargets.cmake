@@ -1,5 +1,5 @@
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS src/*.cpp)
-file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS include/proc_watcher/*.hpp)
+file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS include/prox/*.hpp)
 
 add_library(${PROJECT_NAME} INTERFACE "${public_headers}")
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})

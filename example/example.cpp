@@ -10,7 +10,7 @@
 
 #include <range/v3/all.hpp>
 
-#include <proc_watcher/proc_watcher.hpp>
+#include <prox/prox.hpp>
 
 // Options structure
 struct Options
@@ -27,9 +27,9 @@ struct Options
 	bool profile   = DEFAULT_PROFILE;
 	bool migration = DEFAULT_MIGRATION;
 
-	double time    = DEFAULT_TIME;
-	double dt      = DEFAULT_DT;
-	double cpu_use = DEFAULT_CPU_USE;
+	float time    = DEFAULT_TIME;
+	float dt      = DEFAULT_DT;
+	float cpu_use = DEFAULT_CPU_USE;
 
 	std::string child_process{};
 };
@@ -40,7 +40,7 @@ struct Global
 {
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_time = std::chrono::high_resolution_clock::now();
 
-	proc_watcher::process_tree processes;
+	prox::process_tree processes;
 
 	pid_t child_pid = 0;
 };
@@ -119,13 +119,13 @@ void parse_options(CLI::App & app, const int argc, const char * argv[])
 }
 
 
-template<typename F>
-auto measure(F && f)
+template<typename T = double>
+auto measure(auto && operation)
 {
 	const auto start = std::chrono::high_resolution_clock::now();
-	f();
+	operation();
 	const auto end = std::chrono::high_resolution_clock::now();
-	return std::chrono::duration<double>(end - start).count();
+	return std::chrono::duration<T>(end - start).count();
 }
 
 template<typename T>
@@ -146,7 +146,7 @@ auto keep_running()
 
 	// Else, keep running until time is up
 	const auto now     = std::chrono::high_resolution_clock::now();
-	const auto elapsed = std::chrono::duration<double>(now - global.start_time).count();
+	const auto elapsed = std::chrono::duration<decltype(options.time)>(now - global.start_time).count();
 	return elapsed < options.time;
 }
 
@@ -174,9 +174,10 @@ void most_CPU_consuming_procs()
 		return proc.cpu_use() > options.cpu_use;
 	};
 
-	// Print the most CPU consuming processes
+	auto heavy_proc = global.processes | ranges::views::filter(high_cpu_use);
+
 	spdlog::info("Most CPU consuming processes ({}%):", options.cpu_use);
-	for (const auto & cpu_proc : global.processes | ranges::views::filter(high_cpu_use))
+	for (const auto & cpu_proc : heavy_proc)
 	{
 		const auto update_seconds_ago =
 		    std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - cpu_proc.last_update()).count();
@@ -215,10 +216,8 @@ void print_children_info()
 		}
 
 		const auto & proc = proc_opt->get();
-		const auto   update_seconds_ago =
-		    std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - proc->last_update()).count();
-		spdlog::info("\tPID {}. Updated {} ago. CPU {} at {:>.2f}%. \"{}\"", proc->pid(),
-		             format_seconds(update_seconds_ago), proc->processor(), proc->cpu_use(), proc->cmdline());
+		spdlog::info("\tPID {}. CPU {} at {:>.2f}%. \"{}\"", proc->pid(), proc->processor(), proc->cpu_use(),
+		             proc->cmdline());
 	}
 }
 
@@ -253,7 +252,7 @@ auto main(const int argc, const char * argv[]) -> int
 {
 	try
 	{
-		CLI::App app{ "Demo of proc_watcher" };
+		CLI::App app{ "Demo of prox" };
 
 		try
 		{
@@ -268,7 +267,7 @@ auto main(const int argc, const char * argv[]) -> int
 			return EXIT_FAILURE;
 		}
 
-		spdlog::info("Demo of proc_watcher");
+		spdlog::info("Demo of prox");
 
 		auto sleep_time = options.dt;
 
@@ -277,10 +276,10 @@ auto main(const int argc, const char * argv[]) -> int
 			using namespace std::literals::chrono_literals;
 			std::this_thread::sleep_for(sleep_time * 1s);
 
-			const auto loop_time = measure([&] {
+			const auto loop_time = measure<float>([&] {
 				update_tree();
 
-				if (options.cpu_use >= 0.0) { most_CPU_consuming_procs(); }
+				if (options.cpu_use > 0.0F) { most_CPU_consuming_procs(); }
 
 				if (options.profile) { print_children_info(); }
 

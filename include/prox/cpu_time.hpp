@@ -6,7 +6,7 @@
 
 #include <fmt/core.h> // for format
 
-namespace proc_watcher
+namespace prox
 {
 	class CPU_time
 	{
@@ -124,4 +124,4 @@ namespace proc_watcher
 		void update() { scan_cpu_time(); }
 	};
 
-} // namespace proc_watcher
+} // namespace prox

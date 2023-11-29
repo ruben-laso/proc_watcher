@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.14)
 
-set(namespace "proc_watcher")
+set(namespace "prox")
 
 # Set the project name and language
-project(proc_watcher
+project(prox
         VERSION 1.0
         DESCRIPTION "Library to scan the /proc directory and get information about the processes running in the system."
         LANGUAGES CXX)
@@ -17,10 +17,6 @@ include(cmake/variables.cmake)
 message(STATUS "Searching targets")
 include(cmake/CMakeTargets.cmake)
 message(STATUS "Searching targets - done")
-
-message(STATUS "Configuring CMake variables")
-include(cmake/CMakePreConf.cmake)
-message(STATUS "Configuring CMake variables - done")
 
 message(STATUS "Searching external libraries")
 include(cmake/CMakeLibs.cmake)
@@ -36,9 +32,18 @@ if (NOT CMAKE_SKIP_INSTALL_RULES)
 endif ()
 message(STATUS "Configuring install - done")
 
+# ---- Examples ----
+
+if(PROJECT_IS_TOP_LEVEL)
+    option(BUILD_EXAMPLES "Build examples tree." "${prox_DEVELOPER_MODE}")
+    if(BUILD_EXAMPLES)
+        add_subdirectory(example)
+    endif()
+endif()
+
 # ---- Developer mode ----
 
-if (NOT DEVELOPER_MODE)
+if (NOT ${PROJECT_NAME}_DEVELOPER_MODE)
     return()
 elseif (NOT PROJECT_IS_TOP_LEVEL)
     message(
@@ -46,3 +51,5 @@ elseif (NOT PROJECT_IS_TOP_LEVEL)
             "Developer mode is intended for developers of ${PROJECT_NAME}"
     )
 endif ()
+
+include(cmake/dev-mode.cmake)
