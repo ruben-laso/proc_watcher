@@ -34,11 +34,13 @@ message(STATUS "Configuring install - done")
 
 # ---- Examples ----
 
+option(BUILD_EXAMPLES "Build example(s)" OFF)
 if(PROJECT_IS_TOP_LEVEL)
-    option(BUILD_EXAMPLES "Build examples tree." "${prox_DEVELOPER_MODE}")
-    if(BUILD_EXAMPLES)
-        add_subdirectory(example)
-    endif()
+    set(BUILD_EXAMPLES "${prox_DEVELOPER_MODE}")
+endif()
+
+if(BUILD_EXAMPLES)
+    add_subdirectory(example)
 endif()
 
 # ---- Developer mode ----
