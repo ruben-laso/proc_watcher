@@ -103,15 +103,14 @@ jobs:
       - name: Install libnuma
         run: sudo apt install libnuma-dev -y -q
 
+      - name: Install gtest
+        run: sudo apt install libgtest-dev -y -q
+
       - name: Configure
         run: cmake --preset=ci-sanitize
 
       - name: Build
         run: cmake --build build/sanitize -j 2
-
-      - name: Test (installed?)
-        working-directory: build/sanitize
-        run: ctest --version
 
       - name: Test
         working-directory: build/sanitize
@@ -163,10 +162,13 @@ jobs:
       - name: Install libnuma
         run: sudo apt install libnuma-dev -y -q
 
+      - name: Install gtest
+        run: sudo apt install libgtest-dev -y -q
+
       - name: Configure
         run: |
           OS=$(echo "${{ matrix.os }}" | cut -d '-' -f 1)
-          echo "Preset: ci-${OS}"
+          cmake --preset=ci-${OS}
 
       - name: Build
         run: cmake --build build --config Release -j 2

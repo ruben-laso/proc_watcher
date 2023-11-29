@@ -29,6 +29,9 @@ Additionally, `prox` example depends on the following libraries:
 - [spdlog](https://github.com/gabime/spdlog)
 - [CLI11](https://github.com/CLIUtils/CLI11)
 
+For testing, `prox` depends on the following libraries:
+- [Google Test](https://github.com/google/googletest)
+
 ## Usage
 Wiki is WIP. For now, you can check the [example](example) directory for examples.
 

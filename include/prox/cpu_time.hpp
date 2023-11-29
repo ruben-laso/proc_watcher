@@ -2,9 +2,14 @@
 
 #include <unistd.h> // for sysconf, _SC_NPROCESSORS_ONLN
 
-#include <fstream> // for ifstream, basic_istream, operator>>, basic_ostream, getline
+#include <filesystem> // for path
+#include <fstream>    // for ifstream, basic_istream, operator>>, basic_ostream, getline
+#include <string>     // for string, getline
+#include <utility>    // for cmp_less_equal
 
 #include <fmt/core.h> // for format
+
+#include <range/v3/view/all.hpp> // for views::split, views::transform, views::trim_if
 
 namespace prox
 {
@@ -35,18 +40,10 @@ namespace prox
 
 		float period_ = 0.0;
 
-		void scan_cpu_time()
+		template<typename InputLine>
+		void scan_cpu_time(const InputLine & line)
 		{
 			static const auto N_CPUS = sysconf(_SC_NPROCESSORS_ONLN);
-
-			std::ifstream file(FILE_CPU_STAT, std::ios::in);
-
-			if (not file.is_open())
-			{
-				const auto error_str =
-				    fmt::format("Could not open file {}. Error {} ({})", FILE_CPU_STAT, errno, strerror(errno));
-				throw std::runtime_error(error_str);
-			}
 
 			if (std::cmp_less_equal(N_CPUS, 0))
 			{
@@ -54,19 +51,49 @@ namespace prox
 				throw std::runtime_error(error_str);
 			}
 
-			std::string cpu_str; // = "cpu "
+			std::istringstream iss(line);
 
-			file >> cpu_str;
-			file >> user_time_;
-			file >> nice_time_;
-			file >> system_time_;
-			file >> idle_time_;
-			file >> io_wait_;
-			file >> irq_;
-			file >> soft_irq_;
-			file >> steal_;
-			file >> guest_;
-			file >> guest_nice_;
+			// Make sure we have the right number of fields
+			std::size_t                  n_fields        = 0;
+			static constexpr std::size_t EXPECTED_FIELDS = 11;
+
+			const auto read_field = [&iss, &n_fields](auto & field) {
+				if (iss.eof())
+				{
+					const auto error_str = fmt::format("Could not read {}th field", n_fields);
+					throw std::runtime_error(error_str);
+				}
+
+				iss >> field;
+				++n_fields;
+			};
+
+			std::string cpu_str; // = "cpu "
+			read_field(cpu_str);
+
+			if (not cpu_str.starts_with("cpu"))
+			{
+				const auto error_str = fmt::format("Invalid CPU string: {}", cpu_str);
+				throw std::runtime_error(error_str);
+			}
+
+			read_field(user_time_);
+			read_field(nice_time_);
+			read_field(system_time_);
+			read_field(idle_time_);
+			read_field(io_wait_);
+			read_field(irq_);
+			read_field(soft_irq_);
+			read_field(steal_);
+			read_field(guest_);
+			read_field(guest_nice_);
+
+			// We should have read all the fields
+			if (not iss.eof())
+			{
+				const auto error_str = fmt::format("File has more than {} fields", EXPECTED_FIELDS);
+				throw std::runtime_error(error_str);
+			}
 
 			// Guest time is already accounted in user time
 			user_time_ = user_time_ - guest_;
@@ -85,7 +112,7 @@ namespace prox
 		}
 
 	public:
-		CPU_time() { update(); }
+		CPU_time() = default;
 
 		[[nodiscard]] auto user_time() const { return user_time_; }
 
@@ -121,7 +148,23 @@ namespace prox
 
 		[[nodiscard]] auto period() const { return period_; }
 
-		void update() { scan_cpu_time(); }
+		void update(const std::filesystem::path & stat = FILE_CPU_STAT)
+		{
+			std::ifstream file(stat, std::ios::in);
+
+			if (not file.is_open())
+			{
+				const auto error_str =
+				    fmt::format("Could not open file {}. Error {} ({})", stat.string(), errno, strerror(errno));
+				throw std::runtime_error(error_str);
+			}
+
+			// Get only the first line as std::isstream
+			std::string first_line;
+			std::getline(file, first_line);
+
+			scan_cpu_time(first_line);
+		}
 	};
 
 } // namespace prox

@@ -14,6 +14,10 @@ endif ()
 
 # ---- Tests ----
 
+# Find package for GTest
+find_package(GTest REQUIRED)
+
+
 # Get the names of all the tests from the source files
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS source/*.cpp)
 foreach (testSource ${TEST_SOURCES})
@@ -24,7 +28,7 @@ endforeach()
 # Add a test for each test file
 foreach (testName ${TEST_NAMES})
     add_executable(${testName} source/${testName}.cpp)
-    target_link_libraries(${testName} PRIVATE prox::prox)
+    target_link_libraries(${testName} PRIVATE prox::prox GTest::GTest GTest::Main)
     target_compile_features(${testName} PRIVATE cxx_std_20)
     add_test(NAME ${testName} COMMAND ${testName})
 endforeach()
