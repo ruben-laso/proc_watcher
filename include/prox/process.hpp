@@ -29,6 +29,7 @@
 
 namespace prox
 {
+	template<typename CPU_time_provider>
 	class process
 	{
 		// From htop: supposed to be in linux/sched.h
@@ -44,7 +45,7 @@ namespace prox
 		constexpr static char STOPPED_CHAR  = 'T';
 
 	private:
-		std::reference_wrapper<const CPU_time> cpu_time_;
+		std::reference_wrapper<const CPU_time_provider> cpu_time_;
 
 		std::vector<pid_t> children_{}; // The children of this process.
 		std::vector<pid_t> tasks_{};    // The tasks (LWP) of this process.
@@ -293,7 +294,7 @@ namespace prox
 				static constexpr auto whitespaces{ " \t\f\v\n\r" };
 
 				const auto it = cmdline.find_last_not_of(whitespaces);
-				if (it not_eq std::string::npos) { cmdline.erase(it); }
+				if (it not_eq std::string::npos) { cmdline.erase(it + 1); }
 
 				return cmdline;
 			}
@@ -316,7 +317,7 @@ namespace prox
 	public:
 		process() = delete;
 
-		explicit process(const pid_t pid, const CPU_time & cpu_time) :
+		explicit process(const pid_t pid, const CPU_time_provider & cpu_time) :
 		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    path_(fmt::format("/proc/{}", pid)),
@@ -333,7 +334,7 @@ namespace prox
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
 		}
 
-		process(const pid_t pid, std::filesystem::path path, const CPU_time & cpu_time) :
+		process(const pid_t pid, std::filesystem::path path, const CPU_time_provider & cpu_time) :
 		    cpu_time_(cpu_time),
 		    pid_(pid),
 		    path_(std::move(path)),
@@ -444,7 +445,10 @@ namespace prox
 		[[nodiscard]] auto add_child(const pid_t pid)
 		{
 			// If the child is already in the children/tasks list, do nothing
-			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid)) { return; }
+			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid) or std::cmp_equal(pid, pid_))
+			{
+				return;
+			}
 			children_.emplace_back(pid);
 			ranges::actions::sort(children_);
 		}
@@ -454,7 +458,10 @@ namespace prox
 		[[nodiscard]] auto add_task(const pid_t pid)
 		{
 			// If the child is already in the children/tasks list, do nothing
-			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid)) { return; }
+			if (ranges::contains(children_, pid) or ranges::contains(tasks_, pid) or std::cmp_equal(pid, pid_))
+			{
+				return;
+			}
 			tasks_.emplace_back(pid);
 			ranges::actions::sort(tasks_);
 		}

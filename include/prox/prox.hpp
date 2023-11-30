@@ -59,6 +59,15 @@ namespace prox
 
 	class process_tree
 	{
+		using proc_t     = process<CPU_time>;
+		using proc_ptr_t = std::shared_ptr<proc_t>;
+
+		template<typename... Args>
+		[[nodiscard]] static auto make_proc_ptr(Args &&... args)
+		{
+			return std::make_shared<proc_t>(args...);
+		}
+
 		static constexpr const char * TREE_STR_HORZ = "\xe2\x94\x80"; // TREE_STR_HORZ ─
 		static constexpr const char * TREE_STR_VERT = "\xe2\x94\x82"; // TREE_STR_VERT │
 		static constexpr const char * TREE_STR_RTEE = "\xe2\x94\x9c"; // TREE_STR_RTEE ├
@@ -71,9 +80,9 @@ namespace prox
 
 		CPU_time cpu_time_ = {};
 
-		std::map<pid_t, std::shared_ptr<process>> processes_ = {};
+		std::map<pid_t, proc_ptr_t> processes_ = {};
 
-		void insert(const std::shared_ptr<process> & proc_)
+		void insert(const proc_ptr_t & proc_)
 		{
 			// Check if the process is already in the tree
 			if (const auto find_it = processes_.find(proc_->pid()); find_it not_eq processes_.end())
@@ -91,17 +100,16 @@ namespace prox
 			for (const auto & task : proc->tasks())
 			{
 				const auto task_path = proc->path() / "task" / std::to_string(task);
-				std::ignore =
-				    processes_.try_emplace(task, std::make_shared<process>(task, task_path.string(), cpu_time_));
+				std::ignore          = processes_.try_emplace(task, make_proc_ptr(task, task_path.string(), cpu_time_));
 			}
 
 			for (const auto & child : proc->children())
 			{
-				std::ignore = processes_.try_emplace(child, std::make_shared<process>(child, cpu_time_));
+				std::ignore = processes_.try_emplace(child, make_proc_ptr(child, cpu_time_));
 			}
 		}
 
-		void print_level(std::ostream & os, const process & p, const size_t level = 0) const
+		void print_level(std::ostream & os, const proc_t & p, const size_t level = 0) const
 		{
 			static constexpr size_t TAB_SIZE = 3;
 
@@ -143,20 +151,20 @@ namespace prox
 
 		[[nodiscard]] auto processes() const { return processes_ | ranges::views::values | ranges::views::indirect; }
 
-		auto insert(const pid_t pid, const std::filesystem::path & path) -> std::shared_ptr<process>
+		auto insert(const pid_t pid, const std::filesystem::path & path) -> proc_ptr_t
 		{
 			// Try to find it within the process tree. If the process is found, nothing to do...
 			if (const auto proc_it = processes_.find(pid); proc_it not_eq processes_.end()) { return proc_it->second; }
 
 			// Otherwise, try to create a new process
-			auto proc_ptr = std::make_shared<process>(pid, path, cpu_time_);
+			auto proc_ptr = make_proc_ptr(pid, path, cpu_time_);
 			insert(proc_ptr);
 			return proc_ptr;
 		}
 
-		auto insert(const pid_t pid) -> std::shared_ptr<process> { return insert(pid, fmt::format("/proc/{}", pid)); }
+		auto insert(const pid_t pid) -> proc_ptr_t { return insert(pid, fmt::format("/proc/{}", pid)); }
 
-		[[nodiscard]] auto get(const pid_t pid) -> std::optional<std::shared_ptr<process>>
+		[[nodiscard]] auto get(const pid_t pid) -> std::optional<proc_ptr_t>
 		{
 			// If the process is found, return a reference to it
 			if (const auto & proc_it = processes_.find(pid); proc_it not_eq processes_.end())
@@ -176,7 +184,7 @@ namespace prox
 			}
 		}
 
-		[[nodiscard]] auto get(const pid_t pid) const -> std::optional<std::shared_ptr<process>>
+		[[nodiscard]] auto get(const pid_t pid) const -> std::optional<proc_ptr_t>
 		{
 			// If the process is found, return a reference to it
 			if (const auto & proc_it = processes_.find(pid); proc_it not_eq processes_.end())
@@ -410,7 +418,7 @@ namespace prox
 				// If the process is not found, try to create a new one
 				auto path = path_opt.value_or(fmt::format("/proc/{}", pid));
 
-				std::shared_ptr<process> proc_ptr;
+				proc_ptr_t proc_ptr;
 
 				try
 				{

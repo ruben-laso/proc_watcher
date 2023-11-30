@@ -103,8 +103,8 @@ jobs:
       - name: Install libnuma
         run: sudo apt install libnuma-dev -y -q
 
-      - name: Install gtest
-        run: sudo apt install libgtest-dev -y -q
+      - name: Install gtest and gmock
+        run: sudo apt install libgtest-dev libgmock-dev -y -q
 
       - name: Configure
         run: cmake --preset=ci-sanitize
@@ -162,8 +162,8 @@ jobs:
       - name: Install libnuma
         run: sudo apt install libnuma-dev -y -q
 
-      - name: Install gtest
-        run: sudo apt install libgtest-dev -y -q
+      - name: Install gtest and gmock
+        run: sudo apt install libgtest-dev libgmock-dev -y -q
 
       - name: Configure
         run: |

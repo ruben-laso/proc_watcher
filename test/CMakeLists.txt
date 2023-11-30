@@ -28,7 +28,7 @@ endforeach()
 # Add a test for each test file
 foreach (testName ${TEST_NAMES})
     add_executable(${testName} source/${testName}.cpp)
-    target_link_libraries(${testName} PRIVATE prox::prox GTest::GTest GTest::Main)
+    target_link_libraries(${testName} PRIVATE prox::prox GTest::GTest GTest::Main GTest::gmock_main)
     target_compile_features(${testName} PRIVATE cxx_std_20)
     add_test(NAME ${testName} COMMAND ${testName})
 endforeach()
