@@ -81,16 +81,10 @@ TEST(ProcessTree, ProcessInformation)
 
 	std::set<pid_t> expected_children{ prox::Mock_proc_dir::PIDs::child1, prox::Mock_proc_dir::PIDs::child2 };
 	const auto      children = process_tree.get(prox::Mock_proc_dir::PIDs::root)->get()->children();
-
-	fmt::print("[{}] =? [{}]", fmt::join(children, " "), fmt::join(expected_children, " "));
-
 	EXPECT_TRUE(utils::equivalent_rngs(children, expected_children));
 
 	std::set<pid_t> expected_tasks{ prox::Mock_proc_dir::PIDs::task1, prox::Mock_proc_dir::PIDs::task2 };
 	const auto      tasks = process_tree.get(prox::Mock_proc_dir::PIDs::root)->get()->tasks();
-
-	fmt::print("[{}] =? [{}]", fmt::join(tasks, " "), fmt::join(expected_tasks, " "));
-
 	EXPECT_TRUE(utils::equivalent_rngs(tasks, expected_tasks));
 }
 
