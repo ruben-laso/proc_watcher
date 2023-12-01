@@ -1,11 +1,12 @@
 #pragma once
 
-#include <cerrno>   // for errno, EFAULT, EINVAL, EPERM, ESRCH
-#include <cmath>    // for isnormal
-#include <cstring>  // for strerror
-#include <numa.h>   // for numa_allocate_cpumask, numa_free_cpumask, numa_node_to_cpus, numa_sched_setaffinity
-#include <sched.h>  // for sched_setaffinity, cpu_set_t, sched_getaffinity, CPU_SET, CPU_ZERO
-#include <unistd.h> // for sysconf, _SC_NPROCESSORS_ONLN
+#include <cerrno>     // for errno, EFAULT, EINVAL, EPERM, ESRCH
+#include <cmath>      // for isnormal
+#include <cstring>    // for strerror
+#include <numa.h>     // for numa_allocate_cpumask, numa_free_cpumask, numa_node_to_cpus, numa_sched_setaffinity
+#include <sched.h>    // for sched_setaffinity, cpu_set_t, sched_getaffinity, CPU_SET, CPU_ZERO
+#include <sys/stat.h> // for stat
+#include <unistd.h>   // for sysconf, _SC_NPROCESSORS_ONLN
 
 #include <algorithm>   // for clamp
 #include <chrono>      // for time_point, system_clock, chrono_literals
@@ -225,7 +226,23 @@ namespace prox
 			last_update_ = std::chrono::high_resolution_clock::now();
 		}
 
-		[[nodiscard]] auto update_list_of_tasks()
+		void update_st_uid()
+		{
+			struct stat sstat;
+
+			int ret = stat(path_.c_str(), &sstat);
+
+			if (std::cmp_equal(ret, -1))
+			{
+				const auto error_str =
+				    fmt::format("Could not stat file {}. Error {} ({})", path_.string(), errno, strerror(errno));
+				throw std::runtime_error(error_str);
+			}
+
+			st_uid_ = sstat.st_uid;
+		}
+
+		void update_list_of_tasks()
 		{
 			// A task cannot have tasks
 			if (task_) { return; }
@@ -245,7 +262,7 @@ namespace prox
 			}
 		}
 
-		[[nodiscard]] auto update_list_of_children()
+		void update_list_of_children()
 		{
 			children_ = {};
 
@@ -434,6 +451,8 @@ namespace prox
 		{
 			// Update the values from the stat file
 			read_stat_file();
+			// Update the st_uid
+			update_st_uid();
 			// Update the list of tasks
 			update_list_of_tasks();
 			// Update the list of children
@@ -475,7 +494,7 @@ namespace prox
 			cpu_set_t affinity;
 
 			CPU_ZERO(&affinity);
-			CPU_SET(processor, &affinity);
+			CPU_SET(static_cast<size_t>(processor), &affinity);
 
 			if (__glibc_unlikely(sched_setaffinity(pid_, sizeof(cpu_set_t), &affinity)))
 			{

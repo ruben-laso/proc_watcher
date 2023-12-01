@@ -19,13 +19,17 @@
 namespace prox
 {
 	static const auto write_into_bool_vector = [](std::vector<bool> & vec, const auto & pos, const auto & value) {
-		if (std::cmp_less_equal(vec.size(), pos)) { vec.resize(pos + 1, false); }
-		vec.at(pos) = value;
+		if (std::cmp_less(pos, 0)) { throw std::runtime_error("Cannot write into a negative position"); }
+		const auto pos_ = static_cast<std::size_t>(pos);
+		if (std::cmp_less_equal(vec.size(), pos)) { vec.resize(pos_ + 1, false); }
+		vec.at(pos_) = value;
 	};
 
 	static const auto read_from_bool_vector = [](const std::vector<bool> & vec, const auto & pos) -> bool {
+		if (std::cmp_less(pos, 0)) { throw std::runtime_error("Cannot read from a negative position"); }
+		const auto pos_ = static_cast<std::size_t>(pos);
 		if (std::cmp_less_equal(vec.size(), pos)) { return false; }
-		return vec.at(pos);
+		return vec.at(pos_);
 	};
 
 	// taken from https://stackoverflow.com/a/478960
@@ -229,7 +233,7 @@ namespace prox
 
 			while (not q.empty())
 			{
-				const auto & p = q.front();
+				const auto p = q.front();
 				q.pop();
 
 				const auto opt_proc_ptr = get(p);
@@ -359,7 +363,7 @@ namespace prox
 		{
 			static constexpr auto MB_TO_B = 1024 * 1024;
 
-			std::vector<float> mem_usage(numa_max_node() + 1, {});
+			std::vector<float> mem_usage(static_cast<std::size_t>(numa_max_node() + 1), {});
 
 			// Get amount of memory allocated (in MBs)
 			const auto command = "(NUMASTAT_WIDTH=1000 numastat -p " + std::to_string(pid) + " 2> /dev/null) " +
@@ -461,11 +465,12 @@ namespace prox
 
 			const auto max_pid = processes_.empty() ? 99'999 : ranges::max(processes_ | ranges::views::keys);
 
-			std::vector<bool> old_pids(max_pid + 1, false);
-			ranges::for_each(processes_ | ranges::views::keys, [&](const auto & pid) { old_pids.at(pid) = true; });
+			std::vector<bool> old_pids(static_cast<std::size_t>(max_pid + 1), false);
+			ranges::for_each(processes_ | ranges::views::keys,
+			                 [&](const auto & pid) { write_into_bool_vector(old_pids, pid, true); });
 
 			// Set of updated PIDs to avoid updating the same process twice
-			std::vector<bool> updated_pids(max_pid + 1, false);
+			std::vector<bool> updated_pids(static_cast<size_t>(max_pid + 1), false);
 
 			for (const auto & entry : fs::directory_iterator("/proc"))
 			{
