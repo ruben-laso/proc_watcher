@@ -1,9 +1,7 @@
 name: Continuous Integration
 
 on:
-  push:
-    branches:
-      - master
+  push: {} # Triggered on push to any branch
 
   pull_request:
     branches:
