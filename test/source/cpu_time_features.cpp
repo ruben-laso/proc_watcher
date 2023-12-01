@@ -57,7 +57,7 @@ TEST(CPUTimeTest, Update)
 	out << file.str();
 	out.close();
 
-	const auto N_CPUS = 12;
+	const auto N_CPUS = sysconf(_SC_NPROCESSORS_ONLN);
 
 	const unsigned long long int user_time   = 1816560;
 	const unsigned long long int nice_time   = 4773;
@@ -108,7 +108,7 @@ TEST(CPUTimeTest, Update)
 	EXPECT_EQ(cpu_time.virt_total_time(), virt_total_time);
 	EXPECT_EQ(cpu_time.total_time(), total_time);
 	EXPECT_EQ(cpu_time.total_period(), total_period);
-	EXPECT_EQ(cpu_time.period(), period);
+	EXPECT_FLOAT_EQ(cpu_time.period(), period);
 
 	EXPECT_EQ(cpu_time.last_total_time(), expected_last_total_time);
 }
