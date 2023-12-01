@@ -43,9 +43,16 @@ TEST(ProcessTest, CreateNonExistentProcessWithWrongPath)
 TEST(ProcessTest, ParseInformationCorrectly)
 {
 	prox::process_stat mock_process;
-	prox::write_mock_process_stat(mock_process);
 
 	auto cpu_time_ptr = prox::get_mock_cpu_time();
+
+	const std::set<pid_t> expected_children = { 123456780, 123456709 };
+	const std::set<pid_t> expected_tasks    = {}; // Do not store self-task
+
+	mock_process.children = expected_children;
+	mock_process.tasks    = expected_tasks;
+
+	prox::write_mock_process_stat(mock_process);
 
 	// Build the process
 	prox::process process(mock_process.pid, mock_process.path, *cpu_time_ptr);
@@ -78,10 +85,7 @@ TEST(ProcessTest, ParseInformationCorrectly)
 
 	EXPECT_EQ(process.time(), mock_process.utime + mock_process.stime);
 
-	const std::set<pid_t> expected_children = { 123456780, 123456709 };
 	EXPECT_TRUE(utils::equivalent_rngs(process.children(), expected_children));
-
-	const std::set<pid_t> expected_tasks = {}; // Do not store self-task
 	EXPECT_TRUE(utils::equivalent_rngs(process.tasks(), expected_tasks));
 
 	EXPECT_TRUE(
@@ -148,18 +152,21 @@ TEST(ProcessTest, AddNewTask)
 
 TEST(ProcessTest, AddAlreadyExistingChildren)
 {
+	const auto expected_children = { 123456780, 123456709 };
+
 	prox::process_stat mock_process;
+	mock_process.children = expected_children;
 	prox::write_mock_process_stat(mock_process);
 
 	auto cpu_time_ptr = prox::get_mock_cpu_time();
 
 	prox::process process(mock_process.pid, mock_process.path, *cpu_time_ptr);
 
-	const auto child_pid = 123456780;
-
-	auto expected_children = process.children();
-
-	process.add_child(child_pid);
+	// Add repeated children
+	for (const auto & child_pid : expected_children)
+	{
+		process.add_child(child_pid);
+	}
 
 	EXPECT_TRUE(utils::equivalent_rngs(process.children(), expected_children));
 }

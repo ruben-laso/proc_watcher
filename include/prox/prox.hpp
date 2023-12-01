@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <range/v3/all.hpp>
@@ -80,7 +81,12 @@ namespace prox
 		static constexpr const char * TREE_STR_OPEN = "+";            // TREE_STR_OPEN +
 		static constexpr const char * TREE_STR_SHUT = "\xe2\x94\x80"; // TREE_STR_SHUT ─
 
-		static constexpr pid_t ROOT = 1;
+		static constexpr pid_t DEFAULT_ROOT      = 1;
+		static constexpr auto  DEFAULT_PROC_PATH = "/proc";
+
+		pid_t root_ = DEFAULT_ROOT;
+
+		std::filesystem::path proc_path_ = DEFAULT_PROC_PATH;
 
 		CPU_time cpu_time_ = {};
 
@@ -135,9 +141,47 @@ namespace prox
 		}
 
 	public:
-		process_tree() { update(); }
+		process_tree()
+		{
+			// Check that the proc path exists
+			if (not std::filesystem::exists(proc_path_) or not std::filesystem::is_directory(proc_path_))
+			{
+				throw std::runtime_error("The proc path \"" + proc_path_.string() + "\" is not valid");
+			}
 
-		[[nodiscard]] static auto root() -> pid_t { return ROOT; }
+			update();
+
+			// Check that the root process exists
+			if (not processes_.contains(root_))
+			{
+				throw std::runtime_error("The root process \"" + std::to_string(root_) + "\" is not valid");
+			}
+
+			// Check that the tree is not empty
+			if (processes_.empty()) { throw std::runtime_error("The process tree is empty"); }
+		}
+
+		process_tree(const pid_t root, std::filesystem::path proc_path) : root_(root), proc_path_(std::move(proc_path))
+		{
+			// Check that the proc path exists
+			if (not std::filesystem::exists(proc_path_) or not std::filesystem::is_directory(proc_path_))
+			{
+				throw std::runtime_error("The proc path \"" + proc_path_.string() + "\" is not valid");
+			}
+
+			update();
+
+			// Check that the root process exists
+			if (not processes_.contains(root_))
+			{
+				throw std::runtime_error("The root process \"" + std::to_string(root_) + "\" is not valid");
+			}
+
+			// Check that the tree is not empty
+			if (processes_.empty()) { throw std::runtime_error("The process tree is empty"); }
+		}
+
+		[[nodiscard]] auto root() const -> pid_t { return root_; }
 
 		[[nodiscard]] auto begin() const
 		{
@@ -166,15 +210,13 @@ namespace prox
 			return proc_ptr;
 		}
 
-		auto insert(const pid_t pid) -> proc_ptr_t { return insert(pid, fmt::format("/proc/{}", pid)); }
+		auto insert(const pid_t pid) -> proc_ptr_t { return insert(pid, proc_path_ / std::to_string(pid)); }
 
 		[[nodiscard]] auto get(const pid_t pid) -> std::optional<proc_ptr_t>
 		{
 			// If the process is found, return a reference to it
-			if (const auto & proc_it = processes_.find(pid); proc_it not_eq processes_.end())
-			{
-				return { proc_it->second };
-			}
+			const auto & proc_it = processes_.find(pid);
+			if (proc_it not_eq processes_.end()) { return { proc_it->second }; }
 
 			// Otherwise, try to create a new process
 			try
@@ -420,7 +462,7 @@ namespace prox
 				auto proc_it = processes_.find(pid);
 
 				// If the process is not found, try to create a new one
-				auto path = path_opt.value_or(fmt::format("/proc/{}", pid));
+				auto path = path_opt.value_or(proc_path_ / std::to_string(pid));
 
 				proc_ptr_t proc_ptr;
 
@@ -472,7 +514,7 @@ namespace prox
 			// Set of updated PIDs to avoid updating the same process twice
 			std::vector<bool> updated_pids(static_cast<size_t>(max_pid + 1), false);
 
-			for (const auto & entry : fs::directory_iterator("/proc"))
+			for (const auto & entry : fs::directory_iterator(proc_path_))
 			{
 				// Check if the entry is a directory
 				if (not fs::is_directory(entry)) { continue; }
@@ -494,7 +536,7 @@ namespace prox
 			// Make sure that all processes know their children/tasks
 			for (const auto & proc : ranges::views::values(processes_))
 			{
-				if (proc->pid() == ROOT) { continue; }
+				if (proc->pid() == root_) { continue; }
 
 				const auto ppid = proc->ppid();
 
@@ -520,7 +562,7 @@ namespace prox
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &
 		{
 			os << "Process tree with " << p.processes_.size() << " entries." << '\n';
-			const auto & root_opt = p.get(ROOT);
+			const auto & root_opt = p.get(p.root());
 
 			if (not root_opt.has_value()) { return os; }
 

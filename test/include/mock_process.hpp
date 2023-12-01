@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 
+#include <fmt/format.h>
+
 namespace prox
 {
 	struct process_stat
@@ -70,6 +72,10 @@ namespace prox
 		ull env_start             = 140733960280488;
 		ull env_end               = 140733960282091;
 		int exit_code             = 0;
+
+		std::set<pid_t> children = {};
+
+		std::set<pid_t> tasks = {};
 	};
 
 	static void write_mock_process_stat(process_stat & process)
@@ -133,7 +139,7 @@ namespace prox
 
 		// Generate the "children" file
 		file_content.str("");
-		file_content << "123456780 123456709" << std::endl;
+		file_content << fmt::format("{}\n", fmt::join(process.children, " "));
 
 		const auto children_path = process.path / "task" / std::to_string(process.pid) / "children";
 
