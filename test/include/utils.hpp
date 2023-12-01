@@ -1,5 +1,4 @@
-#ifndef PROX_UTILS_HPP
-#define PROX_UTILS_HPP
+#pragma once
 
 #include <range/v3/all.hpp>
 
@@ -38,5 +37,3 @@ namespace utils
 	}
 
 } // namespace utils
-
-#endif // PROX_UTILS_HPP
