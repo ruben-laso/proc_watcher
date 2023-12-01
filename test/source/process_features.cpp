@@ -15,7 +15,7 @@ TEST(ProcessTest, CreateThisProcess)
 	const auto pid  = ::getpid();
 	const auto path = std::filesystem::path("/proc") / std::to_string(pid);
 
-	EXPECT_NO_THROW(prox::process process(pid, path, *cpu_time_ptr););
+	EXPECT_NO_THROW(prox::process(pid, path, *cpu_time_ptr));
 }
 
 TEST(ProcessTest, CreateNonExistentProcess)
@@ -26,7 +26,7 @@ TEST(ProcessTest, CreateNonExistentProcess)
 	const auto pid  = 123456789;
 	const auto path = std::filesystem::path("/proc") / std::to_string(pid);
 
-	EXPECT_THROW(prox::process process(pid, path, *cpu_time_ptr), std::runtime_error);
+	EXPECT_THROW(prox::process(pid, path, *cpu_time_ptr), std::runtime_error);
 }
 
 TEST(ProcessTest, CreateNonExistentProcessWithWrongPath)
@@ -37,7 +37,7 @@ TEST(ProcessTest, CreateNonExistentProcessWithWrongPath)
 	const auto pid  = 123456789;
 	const auto path = std::filesystem::path("/proc") / "non_existent_file.txt";
 
-	EXPECT_THROW(prox::process process(pid, path, *cpu_time_ptr), std::runtime_error);
+	EXPECT_THROW(prox::process(pid, path, *cpu_time_ptr), std::runtime_error);
 }
 
 TEST(ProcessTest, ParseInformationCorrectly)

@@ -4,8 +4,6 @@
 #include <fstream>
 #include <sstream>
 
-#include <fmt/format.h>
-
 namespace prox
 {
 	struct process_stat
@@ -139,7 +137,10 @@ namespace prox
 
 		// Generate the "children" file
 		file_content.str("");
-		file_content << fmt::format("{}\n", fmt::join(process.children, " "));
+		for (const auto & child : process.children)
+		{
+			file_content << child << " ";
+		}
 
 		const auto children_path = process.path / "task" / std::to_string(process.pid) / "children";
 

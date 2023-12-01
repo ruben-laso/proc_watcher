@@ -73,11 +73,11 @@ TEST(ProcessTree, ProcessInformation)
 
 	EXPECT_TRUE(root_opt.has_value());
 
-	const auto & root = root_opt.value();
+	const auto & root_proc = root_opt.value();
 
-	EXPECT_EQ(root->pid(), root_pid);
-	EXPECT_STREQ(root->cmdline().c_str(), "root");
-	EXPECT_STREQ(root->path().c_str(), (mock.mock_proc_dir / std::to_string(root_pid)).c_str());
+	EXPECT_EQ(root_proc->pid(), root_pid);
+	EXPECT_STREQ(root_proc->cmdline().c_str(), "root");
+	EXPECT_STREQ(root_proc->path().c_str(), (mock.mock_proc_dir / std::to_string(root_pid)).c_str());
 
 	std::set<pid_t> expected_children{ prox::Mock_proc_dir::PIDs::child1, prox::Mock_proc_dir::PIDs::child2 };
 	const auto      children = process_tree.get(prox::Mock_proc_dir::PIDs::root)->get()->children();
