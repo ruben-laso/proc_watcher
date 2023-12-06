@@ -21,13 +21,13 @@ sudo cmake --build . --target install
 
 ### Dependencies
 `prox` depends on the following libraries:
-- [range-v3](https://github.com/ericniebler/range-v3)
-- [fmt](https://github.com/fmtlib/fmt)
-- libnuma
+- [`range-v3`](https://github.com/ericniebler/range-v3)
+- [`fmt`](https://github.com/fmtlib/fmt)
+- [`libnuma`](https://man7.org/linux/man-pages/man3/numa.3.html)
 
 Additionally, `prox` example depends on the following libraries:
-- [spdlog](https://github.com/gabime/spdlog)
-- [CLI11](https://github.com/CLIUtils/CLI11)
+- [`spdlog`](https://github.com/gabime/spdlog)
+- [`CLI11`](https://github.com/CLIUtils/CLI11)
 
 For testing, `prox` depends on the following libraries:
 - [Google Test](https://github.com/google/googletest)
