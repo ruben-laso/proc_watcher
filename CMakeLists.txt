@@ -22,10 +22,6 @@ message(STATUS "Searching external libraries")
 include(cmake/CMakeLibs.cmake)
 message(STATUS "Searching external libraries - done")
 
-message(STATUS "Linking libraries")
-include(cmake/CMakeLink.cmake)
-message(STATUS "Linking libraries - done")
-
 message(STATUS "Configuring install")
 if (NOT CMAKE_SKIP_INSTALL_RULES)
     include(cmake/CMakeInstall.cmake)
