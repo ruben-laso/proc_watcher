@@ -1,7 +1,7 @@
 name: Continuous Integration
 
 on:
-  push: {} # Triggered on push to any branch
+  push: { } # Triggered on push to any branch
 
   pull_request:
     branches:
@@ -21,15 +21,15 @@ jobs:
         run: sudo apt-get update -q
           && sudo apt-get install cmake -q -y
 
-      - name: Install a C++ compiler
+      - name: Install C++ compiler(s)
         run: sudo apt-get install g++-11 -q -y
           && sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 90
 
       - name: Install clang-format
-        run: sudo apt-get install clang-format-14 -q -y
+        run: sudo apt-get install clang-format-15 -q -y
 
       - name: Lint
-        run: cmake -D FORMAT_COMMAND=clang-format-14 -P cmake/lint.cmake
+        run: cmake -D FORMAT_COMMAND=clang-format-15 -P cmake/lint.cmake
 
   coverage:
     needs: [ lint ]
@@ -77,7 +77,7 @@ jobs:
 
     runs-on: ubuntu-22.04
 
-    env: { CXX: clang++-14 }
+    env: { CXX: clang++-15 }
 
     steps:
       - uses: actions/checkout@v3
@@ -86,8 +86,8 @@ jobs:
         run: sudo apt-get update -q
           && sudo apt-get install cmake -q -y
 
-      - name: Install a C++ compiler
-        run: sudo apt-get install clang++-14 -q -y
+      - name: Install C++ compiler(s)
+        run: sudo apt-get install clang++-15 g++-11 -q -y
 
       - name: Install Range-v3
         run: sudo apt install librange-v3-dev -y -q
@@ -139,14 +139,17 @@ jobs:
       - name: Install CMake
         run: sudo apt-get install cmake -q -y
 
+      - name: Install C++ compiler(s)
+        run: sudo apt-get install clang++-15 g++-11 -q -y
+
       - name: Install static analyzers
         if: matrix.os == 'ubuntu-22.04'
         run: >-
-          sudo apt-get install clang-tidy-14 cppcheck -y -q
+          sudo apt-get install clang-tidy-15 cppcheck -y -q
           
           sudo update-alternatives --install
           /usr/bin/clang-tidy clang-tidy
-          /usr/bin/clang-tidy-14 140
+          /usr/bin/clang-tidy-15 150
 
       - name: Install Range-v3
         run: sudo apt install librange-v3-dev -y -q
