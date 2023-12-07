@@ -1,12 +1,12 @@
 #pragma once
 
-#include <sys/stat.h> // for stat
+#include <sys/types.h>
 
 #include <filesystem>
 #include <fstream>
 #include <string>
 
-#include <fmt/format.h>
+#include <fmt/core.h>
 
 namespace prox
 {
@@ -24,7 +24,7 @@ namespace prox
 		char state{}; // State of the process.
 
 		pid_t ppid{};    // The PID of the parent of this process.
-		int   pgrp{};    // The process group ID of the process.
+		gid_t pgrp{};    // The process group ID of the process.
 		int   session{}; // The session ID of the process.
 		int   tty_nr{};  // The controlling terminal of the process.
 		int   tpgid{};   // The ID of the foreground process group of the controlling terminal of the process.
@@ -145,7 +145,7 @@ namespace prox
 		file >> stat.exit_code;
 	}
 
-	static auto read_stat_file(const std::filesystem::path & stat_file)
+	static inline auto read_stat_file(const std::filesystem::path & stat_file)
 	{
 		prox::stat stat;
 		update_stat_file(stat_file, stat);
