@@ -60,30 +60,28 @@ TEST(ProcessTest, ParseInformationCorrectly)
 	// Check the information
 	EXPECT_EQ(process.pid(), mock_process.pid);
 	EXPECT_STREQ(process.cmdline().c_str(), mock_process.name.c_str());
-	EXPECT_EQ(process.state(), mock_process.state);
+	EXPECT_EQ(process.stat_info().state, mock_process.state);
 	EXPECT_EQ(process.ppid(), mock_process.ppid);
-	EXPECT_EQ(process.pgrp(), mock_process.pgrp);
-	EXPECT_EQ(process.session(), mock_process.session);
-	EXPECT_EQ(process.tty_nr(), mock_process.tty);
-	EXPECT_EQ(process.tpgid(), mock_process.tpgid);
-	EXPECT_EQ(process.flags(), mock_process.flags);
-	EXPECT_EQ(process.minflt(), mock_process.minflt);
-	EXPECT_EQ(process.cminflt(), mock_process.cminflt);
-	EXPECT_EQ(process.majflt(), mock_process.majflt);
-	EXPECT_EQ(process.cmajflt(), mock_process.cmajflt);
-	EXPECT_EQ(process.utime(), mock_process.utime);
-	EXPECT_EQ(process.stime(), mock_process.stime);
-	EXPECT_EQ(process.cutime(), mock_process.cutime);
-	EXPECT_EQ(process.cstime(), mock_process.cstime);
-	EXPECT_EQ(process.priority(), mock_process.priority);
-	EXPECT_EQ(process.nice(), mock_process.nice);
-	EXPECT_EQ(process.num_threads(), mock_process.num_threads);
+	EXPECT_EQ(process.stat_info().pgrp, mock_process.pgrp);
+	EXPECT_EQ(process.stat_info().session, mock_process.session);
+	EXPECT_EQ(process.stat_info().tty_nr, mock_process.tty_nr);
+	EXPECT_EQ(process.stat_info().tpgid, mock_process.tpgid);
+	EXPECT_EQ(process.stat_info().flags, mock_process.flags);
+	EXPECT_EQ(process.stat_info().minflt, mock_process.minflt);
+	EXPECT_EQ(process.stat_info().cminflt, mock_process.cminflt);
+	EXPECT_EQ(process.stat_info().majflt, mock_process.majflt);
+	EXPECT_EQ(process.stat_info().cmajflt, mock_process.cmajflt);
+	EXPECT_EQ(process.stat_info().utime, mock_process.utime);
+	EXPECT_EQ(process.stat_info().stime, mock_process.stime);
+	EXPECT_EQ(process.stat_info().cutime, mock_process.cutime);
+	EXPECT_EQ(process.stat_info().cstime, mock_process.cstime);
+	EXPECT_EQ(process.stat_info().priority, mock_process.priority);
+	EXPECT_EQ(process.stat_info().nice, mock_process.nice);
+	EXPECT_EQ(process.stat_info().num_threads, mock_process.num_threads);
 
-	EXPECT_EQ(process.starttime(), mock_process.starttime);
-	EXPECT_EQ(process.exit_signal(), mock_process.exit_signal);
+	EXPECT_EQ(process.stat_info().starttime, mock_process.starttime);
+	EXPECT_EQ(process.stat_info().exit_signal, mock_process.exit_signal);
 	EXPECT_EQ(process.processor(), mock_process.processor);
-
-	EXPECT_EQ(process.time(), mock_process.utime + mock_process.stime);
 
 	EXPECT_TRUE(utils::equivalent_rngs(process.children(), expected_children));
 	EXPECT_TRUE(utils::equivalent_rngs(process.tasks(), expected_tasks));

@@ -27,6 +27,7 @@
 #include <range/v3/all.hpp> // for views::split, views::to, views::concat
 
 #include "cpu_time.hpp" // for CPU_time
+#include "stat.hpp"     // for stat
 
 namespace prox
 {
@@ -38,12 +39,6 @@ namespace prox
 
 	public:
 		constexpr static std::string_view DEFAULT_PROC = "/proc";
-
-		constexpr static char RUNNING_CHAR  = 'R';
-		constexpr static char SLEEPING_CHAR = 'S';
-		constexpr static char WAITING_CHAR  = 'W';
-		constexpr static char ZOMBIE_CHAR   = 'Z';
-		constexpr static char STOPPED_CHAR  = 'T';
 
 	private:
 		std::reference_wrapper<const CPU_time_provider> cpu_time_;
@@ -66,42 +61,9 @@ namespace prox
 		                          // or "ps" command is empty.
 		bool task_       = false; // Is a task of the effective parent. Path contains "task" somewhere.
 
-		char state_{}; // State of the process.
+		uid_t st_uid_{}; // User ID the process belongs to.
 
-		pid_t        ppid_{};    // The PID of the parent of this process.
-		unsigned int pgrp_{};    // The process group ID of the process.
-		unsigned int session_{}; // The session ID of the process.
-		unsigned int tty_nr_{};  // The controlling terminal of the process.
-		int          tpgid_{};   // The ID of the foreground process group of the controlling terminal of the process.
-
-		unsigned long int flags_{}; // The kernel flags word of the process.
-
-		unsigned long int minflt_{};  // The number of minor faults the process has made.
-		unsigned long int cminflt_{}; // The number of minor faults that the process's waited-for children have made.
-		unsigned long int majflt_{};  // The number of major faults the process has made.
-		unsigned long int cmajflt_{}; // The number of major faults that the process's waited-for children have made.
-
-		unsigned long long utime_{}; // Amount of time that this process has been scheduled in user mode.
-		unsigned long long stime_{}; // Amount of time that this process has been scheduled in kernel mode.
-		unsigned long long
-		    cutime_{}; // Amount of time that this process's waited-for children have been scheduled in user mode.
-		unsigned long long
-		    cstime_{}; // mount of time that this process's waited-for children have been scheduled in kernel mode.
-
-		unsigned long long time_{}; // Amount of time that this process has been scheduled in user and kernel mode.
-
-		long int
-		    priority_{}; // For processes running a real-time scheduling policy, this is the negated scheduling priority, minus one.
-		long int nice_{}; // The nice value, a value in the range 19 (low priority) to -20 (high priority).
-
-		long int num_threads_{}; // Number of threads in this process.
-
-		unsigned long long starttime_{}; // The time the process started after system boot.
-
-		uid_t st_uid_{};    // User ID the process belongs to.
-		int   processor_{}; // CPU number last executed on.
-
-		int exit_signal_{}; // The thread's exit status in the form reported by wait_pid.
+		stat stat_{}; // Struct with the information from the stat file.
 
 		std::optional<int> pinned_processor_{}; // CPU number pinned on. There might be a delay between pinning
 		                                        // a process and the migration is performed.
@@ -142,95 +104,38 @@ namespace prox
 			}
 		}
 
-		void manual_read_stat_file()
-		{
-			const auto    pid_str        = std::to_string(pid_);
-			const auto    stat_file_path = task_ ? path_ / "stat" : path_ / "task" / pid_str / "stat";
-			std::ifstream stat_file{ stat_file_path };
-
-			if (not stat_file.is_open() or not stat_file.good())
-			{
-				const auto error =
-				    fmt::format("Error opening stat file for PID {} ({})", pid_, stat_file_path.string());
-				throw std::runtime_error(error);
-			}
-
-			pid_t pid = 0;
-			stat_file >> pid;
-			if (std::cmp_not_equal(pid, pid_))
-			{
-				const auto error = fmt::format("PID mismatch: expected {} but got {}", pid_, pid);
-				throw std::runtime_error(error);
-			}
-
-			std::string name;
-			std::getline(stat_file, name, ' '); // Skip space before name
-			std::getline(stat_file, name, ' '); // get the name in the format -> "(name)"
-
-			stat_file >> state_;
-			stat_file >> ppid_;
-			stat_file >> pgrp_;
-			stat_file >> session_;
-			stat_file >> tty_nr_;
-			stat_file >> tpgid_;
-			stat_file >> flags_;
-			stat_file >> minflt_;
-			stat_file >> cminflt_;
-			stat_file >> majflt_;
-			stat_file >> cmajflt_;
-			stat_file >> utime_;
-			stat_file >> stime_;
-			stat_file >> cutime_;
-			stat_file >> cstime_;
-			stat_file >> priority_;
-			stat_file >> nice_;
-			stat_file >> num_threads_;
-
-			// skip (21) itrealvalue
-			int it_real_value = 0;
-			stat_file >> it_real_value;
-
-			stat_file >> starttime_;
-
-			// skip from (23) vsize to (37) cnswap
-			constexpr size_t skip_fields = 37 - 23;
-			for (size_t i = 0; i <= skip_fields; ++i)
-			{
-				unsigned long skip = 0;
-				stat_file >> skip;
-			}
-
-			stat_file >> exit_signal_;
-
-			time_ = utime_ + stime_;
-
-			stat_file >> processor_;
-		}
-
 		void read_stat_file()
 		{
 			// Update the process info from the stat file
-			manual_read_stat_file();
+			const auto pid_str        = std::to_string(pid_);
+			const auto stat_file_path = task_ ? path_ / "stat" : path_ / "task" / pid_str / "stat";
 
+			update_stat_file(stat_file_path, stat_);
+		}
+
+		void update_cpu_use()
+		{
 			const auto period = cpu_time_.get().period();
 
-			cpu_use_ = static_cast<float>(time_ - last_times_) / period * 100.0F;
+			const auto time = stat_.utime + stat_.stime;
+
+			cpu_use_ = static_cast<float>(time - last_times_) / period * 100.0F;
 
 			if (not std::isnormal(cpu_use_)) { cpu_use_ = 0.0; }
 
 			// Parent processes gather all children CPU usage => cpu_use_ >> 100
 			cpu_use_ = std::clamp(cpu_use_, static_cast<float>(0.0), static_cast<float>(100.0));
 
-			last_times_ = time_;
+			last_times_ = time;
 
 			last_update_ = std::chrono::high_resolution_clock::now();
 		}
 
 		void update_st_uid()
 		{
-			struct stat sstat;
+			struct ::stat sstat;
 
-			int ret = stat(path_.c_str(), &sstat);
+			int ret = ::stat(path_.c_str(), &sstat);
 
 			if (std::cmp_equal(ret, -1))
 			{
@@ -327,9 +232,9 @@ namespace prox
 			}
 		}
 
-		[[nodiscard]] auto is_userland_lwp() const { return std::cmp_not_equal(pid_, pgrp_); }
+		[[nodiscard]] auto is_userland_lwp() const { return std::cmp_not_equal(pid_, stat_.pgrp); }
 
-		[[nodiscard]] auto is_kernel_lwp() const { return static_cast<bool>(flags_ & PF_KTHREAD); }
+		[[nodiscard]] auto is_kernel_lwp() const { return static_cast<bool>(stat_.flags & PF_KTHREAD); }
 
 	public:
 		process() = delete;
@@ -345,7 +250,7 @@ namespace prox
 		    cmdline_(obtain_cmdline())
 		{
 			update();
-			effective_ppid_ = ppid_;
+			effective_ppid_ = stat_.ppid;
 
 			// Update lwp after parsing the stat file
 			lwp_ = is_userland_lwp() or is_kernel_lwp();
@@ -372,25 +277,25 @@ namespace prox
 
 				effective_ppid_ = static_cast<pid_t>(std::strtol(parent_path.filename().c_str(), nullptr, 10));
 			}
-			else { effective_ppid_ = ppid_; }
+			else { effective_ppid_ = stat_.ppid; }
 		}
 
 		[[nodiscard]] auto cmdline() const { return cmdline_; }
 
 		[[nodiscard]] auto pid() const -> pid_t { return pid_; }
 
-		[[nodiscard]] auto ppid() const -> pid_t { return ppid_; }
+		[[nodiscard]] auto ppid() const -> pid_t { return stat_.ppid; }
 
 		[[nodiscard]] auto effective_ppid() const -> pid_t { return effective_ppid_; }
 
 		[[nodiscard]] auto processor() const
 		{
-			return pinned_processor_.has_value() ? pinned_processor_.value() : processor_;
+			return pinned_processor_.has_value() ? pinned_processor_.value() : stat_.processor;
 		}
 
 		[[nodiscard]] auto numa_node() const
 		{
-			return pinned_numa_node_.has_value() ? pinned_numa_node_.value() : numa_node_of_cpu(processor_);
+			return pinned_numa_node_.has_value() ? pinned_numa_node_.value() : numa_node_of_cpu(stat_.processor);
 		}
 
 		[[nodiscard]] auto cpu_use() const { return cpu_use_; }
@@ -401,49 +306,9 @@ namespace prox
 
 		[[nodiscard]] auto migratable() const { return migratable_; }
 
-		[[nodiscard]] auto state() const { return state_; }
+		[[nodiscard]] auto running() const { return stat_.state == 'R'; }
 
-		[[nodiscard]] auto running() const { return state_ == RUNNING_CHAR; }
-
-		[[nodiscard]] auto pgrp() const { return pgrp_; }
-
-		[[nodiscard]] auto session() const { return session_; }
-
-		[[nodiscard]] auto tty_nr() const { return tty_nr_; }
-
-		[[nodiscard]] auto tpgid() const { return tpgid_; }
-
-		[[nodiscard]] auto flags() const { return flags_; }
-
-		[[nodiscard]] auto minflt() const { return minflt_; }
-
-		[[nodiscard]] auto cminflt() const { return cminflt_; }
-
-		[[nodiscard]] auto majflt() const { return majflt_; }
-
-		[[nodiscard]] auto cmajflt() const { return cmajflt_; }
-
-		[[nodiscard]] auto utime() const { return utime_; }
-
-		[[nodiscard]] auto stime() const { return stime_; }
-
-		[[nodiscard]] auto cutime() const { return cutime_; }
-
-		[[nodiscard]] auto cstime() const { return cstime_; }
-
-		[[nodiscard]] auto time() const { return time_; }
-
-		[[nodiscard]] auto priority() const { return priority_; }
-
-		[[nodiscard]] auto nice() const { return nice_; }
-
-		[[nodiscard]] auto num_threads() const { return num_threads_; }
-
-		[[nodiscard]] auto starttime() const { return starttime_; }
-
-		[[nodiscard]] auto st_uid() const { return st_uid_; }
-
-		[[nodiscard]] auto exit_signal() const { return exit_signal_; }
+		[[nodiscard]] auto stat_info() const -> const auto & { return stat_; }
 
 		[[nodiscard]] auto last_update() const { return last_update_; }
 
@@ -451,6 +316,8 @@ namespace prox
 		{
 			// Update the values from the stat file
 			read_stat_file();
+			// Update the CPU usage
+			update_cpu_use();
 			// Update the st_uid
 			update_st_uid();
 			// Update the list of tasks
@@ -508,7 +375,7 @@ namespace prox
 		{
 			if (pinned_processor_.has_value()) { return; }
 
-			pin_processor(processor_);
+			pin_processor(stat_.processor);
 		}
 
 		void pin_numa_node(const int numa_node)
@@ -559,7 +426,7 @@ namespace prox
 		friend auto operator<<(std::ostream & os, const process & p) -> std::ostream &
 		{
 			os << fmt::format("PID: {:>6}, PPID: {:>6}, NODE: {:>2}, CPU: {:>3} ({:.1f}%), LWP: {:>5}, CMDLINE: {}",
-			                  p.pid_, p.ppid_, p.numa_node(), p.processor(), p.cpu_use(), p.lwp_, p.cmdline());
+			                  p.pid(), p.ppid(), p.numa_node(), p.processor(), p.cpu_use(), p.lwp_, p.cmdline());
 
 			return os;
 		}

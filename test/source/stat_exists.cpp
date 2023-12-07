@@ -1,8 +1,8 @@
-#include "prox/process.hpp"
+#include <prox/stat.hpp>
 
 #include <gtest/gtest.h>
 
-TEST(prox, process_exists)
+TEST(prox, stat_exists)
 {
 	EXPECT_TRUE(true);
 }

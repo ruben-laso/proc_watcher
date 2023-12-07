@@ -302,6 +302,7 @@ namespace prox
 
 		[[nodiscard]] auto alive(const pid_t pid) const { return processes_.contains(pid); }
 
+		// Return whatever the function returns or throw an exception if the process is not found
 		template<typename T>
 		auto do_or_throw(const pid_t pid, T && func)
 		{
@@ -313,9 +314,17 @@ namespace prox
 			return func(*proc_it->second);
 		}
 
-		[[nodiscard]] auto state(const pid_t pid)
+		[[nodiscard]] auto stat(const pid_t pid) -> const auto &
 		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.state(); });
+			// const auto action = [](const auto & proc) -> const auto & { return proc.stat_info(); };
+			// return do_or_throw(pid, action);
+
+			const auto & proc_it = processes_.find(pid);
+
+			// If the process is not found, throw an exception
+			if (proc_it == processes_.end()) { throw std::runtime_error("Process not found"); }
+
+			return proc_it->second->stat_info();
 		}
 
 		[[nodiscard]] auto running(const pid_t pid)
@@ -326,16 +335,6 @@ namespace prox
 		[[nodiscard]] auto ppid(const pid_t pid)
 		{
 			return do_or_throw(pid, [](const auto & proc) { return proc.ppid(); });
-		}
-
-		[[nodiscard]] auto priority(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.priority(); });
-		}
-
-		[[nodiscard]] auto nice(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.nice(); });
 		}
 
 		[[nodiscard]] auto processor(const pid_t pid)
