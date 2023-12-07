@@ -181,6 +181,26 @@ namespace prox
 			if (processes_.empty()) { throw std::runtime_error("The process tree is empty"); }
 		}
 
+		auto find(const pid_t pid) -> auto &
+		{
+			const auto & proc_it = processes_.find(pid);
+
+			// If the process is not found, throw an exception
+			if (proc_it == processes_.end()) { throw std::runtime_error("Process not found"); }
+
+			return *proc_it->second;
+		}
+
+		auto find(const pid_t pid) const -> const auto &
+		{
+			const auto & proc_it = processes_.find(pid);
+
+			// If the process is not found, throw an exception
+			if (proc_it == processes_.end()) { throw std::runtime_error("Process not found"); }
+
+			return *proc_it->second;
+		}
+
 		[[nodiscard]] auto root() const -> pid_t { return root_; }
 
 		[[nodiscard]] auto begin() const
@@ -302,95 +322,36 @@ namespace prox
 
 		[[nodiscard]] auto alive(const pid_t pid) const { return processes_.contains(pid); }
 
-		// Return whatever the function returns or throw an exception if the process is not found
-		template<typename T>
-		auto do_or_throw(const pid_t pid, T && func)
-		{
-			const auto & proc_it = processes_.find(pid);
+		[[nodiscard]] auto stat(const pid_t pid) -> const auto & { return find(pid).stat_info(); }
 
-			// If the process is not found, throw an exception
-			if (proc_it == processes_.end()) { throw std::runtime_error("Process not found"); }
+		[[nodiscard]] auto running(const pid_t pid) { return find(pid).running(); }
 
-			return func(*proc_it->second);
-		}
+		[[nodiscard]] auto ppid(const pid_t pid) { return find(pid).ppid(); }
 
-		[[nodiscard]] auto stat(const pid_t pid) -> const auto &
-		{
-			// const auto action = [](const auto & proc) -> const auto & { return proc.stat_info(); };
-			// return do_or_throw(pid, action);
+		[[nodiscard]] auto processor(const pid_t pid) { return find(pid).processor(); }
 
-			const auto & proc_it = processes_.find(pid);
+		[[nodiscard]] auto numa_node(const pid_t pid) { return find(pid).numa_node(); }
 
-			// If the process is not found, throw an exception
-			if (proc_it == processes_.end()) { throw std::runtime_error("Process not found"); }
+		[[nodiscard]] auto cpu_use(const pid_t pid) { return find(pid).cpu_use(); }
 
-			return proc_it->second->stat_info();
-		}
+		[[nodiscard]] auto cmdline(const pid_t pid) { return find(pid).cmdline(); }
 
-		[[nodiscard]] auto running(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.running(); });
-		}
+		[[nodiscard]] auto migratable(const pid_t pid) { return find(pid).migratable(); }
 
-		[[nodiscard]] auto ppid(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.ppid(); });
-		}
+		[[nodiscard]] auto lwp(const pid_t pid) { return find(pid).lwp(); }
 
-		[[nodiscard]] auto processor(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.processor(); });
-		}
+		[[nodiscard]] auto pin_processor(const pid_t pid, const int cpu) { return find(pid).pin_processor(cpu); }
 
-		[[nodiscard]] auto numa_node(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.numa_node(); });
-		}
-
-		[[nodiscard]] auto cpu_use(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.cpu_use(); });
-		}
-
-		[[nodiscard]] auto cmdline(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.cmdline(); });
-		}
-
-		[[nodiscard]] auto migratable(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.migratable(); });
-		}
-
-		[[nodiscard]] auto lwp(const pid_t pid)
-		{
-			return do_or_throw(pid, [](const auto & proc) { return proc.lwp(); });
-		}
-
-		[[nodiscard]] auto pin_processor(const pid_t pid, const int cpu)
-		{
-			return do_or_throw(pid, [cpu](auto & proc) { return proc.pin_processor(cpu); });
-		}
-
-		[[nodiscard]] auto pin_processor(const pid_t pid)
-		{
-			return do_or_throw(pid, [](auto & proc) { return proc.pin_processor(); });
-		}
+		[[nodiscard]] auto pin_processor(const pid_t pid) { return find(pid).pin_processor(); }
 
 		[[nodiscard]] auto pin_numa_node(const pid_t pid, const int numa_node)
 		{
-			return do_or_throw(pid, [numa_node](auto & proc) { return proc.pin_numa_node(numa_node); });
+			return find(pid).pin_numa_node(numa_node);
 		}
 
-		[[nodiscard]] auto pin_numa_node(const pid_t pid)
-		{
-			return do_or_throw(pid, [](auto & proc) { return proc.pin_numa_node(); });
-		}
+		[[nodiscard]] auto pin_numa_node(const pid_t pid) { return find(pid).pin_numa_node(); }
 
-		[[nodiscard]] auto unpin(const pid_t pid)
-		{
-			return do_or_throw(pid, [](auto & proc) { return proc.unpin(); });
-		}
+		[[nodiscard]] auto unpin(const pid_t pid) { return find(pid).unpin(); }
 
 		[[nodiscard]] auto unpin()
 		{
