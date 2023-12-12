@@ -25,7 +25,7 @@
 
 #include <range/v3/all.hpp> // for views::split, views::to, views::concat
 
-#include "stat.hpp"     // for stat
+#include "stat.hpp" // for stat
 
 namespace prox
 {
