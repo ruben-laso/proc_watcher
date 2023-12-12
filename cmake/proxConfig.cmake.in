@@ -2,7 +2,7 @@
 
 include(CMakeFindDependencyMacro)
 
-find_dependency(range-v3 CONFIG)
-find_dependency(fmt CONFIG)
+find_dependency(range-v3)
+find_dependency(fmt)
 
 include("${CMAKE_CURRENT_LIST_DIR}/proxTargets.cmake")

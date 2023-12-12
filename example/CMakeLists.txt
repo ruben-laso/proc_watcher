@@ -29,4 +29,4 @@ endfunction()
 
 add_example(example)
 
-add_folders(Example)
+add_folders(example)
