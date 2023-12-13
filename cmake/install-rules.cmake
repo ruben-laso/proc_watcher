@@ -22,7 +22,7 @@ install(
 )
 
 install(
-    TARGETS prox_prox
+    TARGETS prox
     EXPORT proxTargets
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 )
