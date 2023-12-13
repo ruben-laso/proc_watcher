@@ -8,36 +8,33 @@ project(prox
         DESCRIPTION "Library to scan the /proc directory and get information about the processes running in the system."
         LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 include(cmake/project-is-top-level.cmake)
 include(cmake/variables.cmake)
 
-message(STATUS "Searching targets")
+message(STATUS "Defining targets")
 include(cmake/CMakeTargets.cmake)
-message(STATUS "Searching targets - done")
+message(STATUS "Defining targets - done")
 
-message(STATUS "Searching external libraries")
+message(STATUS "Resolving dependencies")
 include(cmake/CMakeLibs.cmake)
-message(STATUS "Searching external libraries - done")
+message(STATUS "Resolving dependencies - done")
 
 message(STATUS "Configuring install")
 if (NOT CMAKE_SKIP_INSTALL_RULES)
-    include(cmake/CMakeInstall.cmake)
+    include(cmake/install-rules.cmake)
 endif ()
 message(STATUS "Configuring install - done")
 
 # ---- Examples ----
 
 option(BUILD_EXAMPLES "Build example(s)" OFF)
-if(PROJECT_IS_TOP_LEVEL)
+if (PROJECT_IS_TOP_LEVEL)
     set(BUILD_EXAMPLES "${prox_DEVELOPER_MODE}")
-endif()
+endif ()
 
-if(BUILD_EXAMPLES)
+if (BUILD_EXAMPLES)
     add_subdirectory(example)
-endif()
+endif ()
 
 # ---- Developer mode ----
 
