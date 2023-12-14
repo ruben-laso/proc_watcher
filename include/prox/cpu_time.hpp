@@ -1,13 +1,14 @@
 #pragma once
 
+#include <errno.h>  // for errno
 #include <unistd.h> // for sysconf, _SC_NPROCESSORS_ONLN
+
+#include <cstring> // for strerror
 
 #include <filesystem> // for path
 #include <fstream>    // for ifstream, basic_istream, operator>>, basic_ostream, getline
 #include <string>     // for string, getline
 #include <utility>    // for cmp_less_equal
-
-#include <fmt/core.h> // for format
 
 #include <range/v3/view/all.hpp> // for views::split, views::transform, views::trim_if
 
@@ -47,8 +48,9 @@ namespace prox
 
 			if (std::cmp_less_equal(N_CPUS, 0))
 			{
-				const auto error_str = fmt::format("Invalid number of CPUs: {}", N_CPUS);
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Could not get the number of CPUs. Error " << errno << " (" << strerror(errno) << ")";
+				throw std::runtime_error(msg.str());
 			}
 
 			std::istringstream iss(line);
@@ -60,8 +62,9 @@ namespace prox
 			const auto read_field = [&iss, &n_fields](auto & field) {
 				if (iss.eof())
 				{
-					const auto error_str = fmt::format("Could not read {}th field", n_fields);
-					throw std::runtime_error(error_str);
+					std::stringstream msg;
+					msg << "Could not read " << n_fields << "th field";
+					throw std::runtime_error(msg.str());
 				}
 
 				iss >> field;
@@ -73,8 +76,9 @@ namespace prox
 
 			if (not cpu_str.starts_with("cpu"))
 			{
-				const auto error_str = fmt::format("Invalid CPU string: {}", cpu_str);
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Expected to read \"cpu\" but got \"" << cpu_str << "\"";
+				throw std::runtime_error(msg.str());
 			}
 
 			read_field(user_time_);
@@ -91,8 +95,9 @@ namespace prox
 			// We should have read all the fields
 			if (not iss.eof())
 			{
-				const auto error_str = fmt::format("File has more than {} fields", EXPECTED_FIELDS);
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Expected to read " << EXPECTED_FIELDS << " fields but got " << n_fields;
+				throw std::runtime_error(msg.str());
 			}
 
 			// Guest time is already accounted in user time
@@ -154,9 +159,9 @@ namespace prox
 
 			if (not file.is_open())
 			{
-				const auto error_str =
-				    fmt::format("Could not open file {}. Error {} ({})", stat.string(), errno, strerror(errno));
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Could not open stat file " << stat.string() << ": " << strerror(errno);
+				throw std::runtime_error(msg.str());
 			}
 
 			// Get only the first line as std::isstream

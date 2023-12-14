@@ -21,8 +21,6 @@
 #include <utility>     // for
 #include <vector>      // for vector
 
-#include <fmt/core.h> // for format
-
 #include <range/v3/all.hpp> // for views::split, views::to, views::concat
 
 #include "stat.hpp" // for stat
@@ -81,24 +79,31 @@ namespace prox
 			return UID;
 		}
 
-		static auto set_affinity_error(const pid_t pid)
+		static auto set_affinity_error(const pid_t pid) -> std::string
 		{
 			switch (errno)
 			{
 				case EFAULT:
-					return fmt::format("Error setting affinity: A supplied memory address was invalid.");
+					return "Error setting affinity: A supplied memory address was invalid.";
 				case EINVAL:
-					return fmt::format(
-					    "Error setting affinity: The affinity bitmask mask contains no processors that are physically "
-					    "on the system, or cpusetsize is smaller than the size of the affinity mask used by the kernel.");
-				case EPERM:
-					return fmt::format(
-					    "Error setting affinity: The calling process does not have appropriate privileges for PID {}.",
-					    pid);
+					return "Error setting affinity: The affinity bitmask mask contains no processors that are physically "
+					       "on the system, or cpusetsize is smaller than the size of the affinity mask used by the kernel.";
+				case EPERM: // permission denied
+				{
+					std::stringstream msg;
+					msg << "Error setting affinity: The calling process does not have appropriate privileges for the "
+					       "requested action on pid "
+					    << pid << ".";
+					return msg.str();
+				}
 				case ESRCH: // When this happens, it's practically unavoidable
-					return fmt::format("Error setting affinity: The process whose ID is {} could not be found", pid);
+				{
+					std::stringstream msg;
+					msg << "Error setting affinity: The process whose ID is " << pid << " could not be found.";
+					return msg.str();
+				}
 				default:
-					return fmt::format("Error setting affinity: Unknown error");
+					return "Error setting affinity: Unknown error";
 			}
 		}
 
@@ -137,9 +142,9 @@ namespace prox
 
 			if (std::cmp_equal(ret, -1))
 			{
-				const auto error_str =
-				    fmt::format("Could not stat file {}. Error {} ({})", path_.string(), errno, strerror(errno));
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Error retrieving st_uid from " << path_ << ": " << strerror(errno);
+				throw std::runtime_error(msg.str());
 			}
 
 			st_uid_ = sstat.st_uid;
@@ -176,9 +181,9 @@ namespace prox
 
 			if (not file.is_open())
 			{
-				const auto error_str = fmt::format("Could not open file {}. Error {} ({})", children_path.string(),
-				                                   errno, strerror(errno));
-				throw std::runtime_error(error_str);
+				std::stringstream msg;
+				msg << "Error opening file " << children_path << ": " << strerror(errno);
+				throw std::runtime_error(msg.str());
 			}
 
 			for (pid_t child_pid = 0; file >> child_pid;)
@@ -220,13 +225,15 @@ namespace prox
 			}
 			catch (std::exception & e)
 			{
-				const auto error = fmt::format("Could not retrieve cmdline from PID {}: {}", pid_, e.what());
-				throw std::runtime_error(error);
+				std::stringstream msg;
+				msg << "Error retrieving cmdline from PID " << pid_ << ": " << e.what();
+				throw std::runtime_error(msg.str());
 			}
 			catch (...)
 			{
-				const auto error = fmt::format("Could not retrieve cmdline from PID {}", pid_);
-				throw std::runtime_error(error);
+				std::stringstream msg;
+				msg << "Error retrieving cmdline from PID " << pid_ << ": Unknown error";
+				throw std::runtime_error(msg.str());
 			}
 		}
 
@@ -240,10 +247,10 @@ namespace prox
 		explicit process(const pid_t pid, const CPU_time_provider & cpu_time) :
 		    cpu_time_(cpu_time),
 		    pid_(pid),
-		    path_(fmt::format("/proc/{}", pid)),
+		    path_(std::filesystem::path{ DEFAULT_PROC } / std::to_string(pid)),
 		    migratable_(is_migratable()),
 		    // First guess to know if it is a LWP
-		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
+		    lwp_(not std::filesystem::exists(std::filesystem::path{ DEFAULT_PROC } / std::to_string(pid))),
 		    task_(path_.string().find("task") != std::string::npos),
 		    cmdline_(obtain_cmdline())
 		{
@@ -260,7 +267,7 @@ namespace prox
 		    path_(std::move(path)),
 		    migratable_(is_migratable()),
 		    // First guess to know if it is a LWP
-		    lwp_(not std::filesystem::exists(fmt::format("/proc/{}", pid))),
+		    lwp_(not std::filesystem::exists(std::filesystem::path{ DEFAULT_PROC } / std::to_string(pid))),
 		    task_(path_.string().find("task") != std::string::npos),
 		    cmdline_(obtain_cmdline())
 		{
@@ -380,19 +387,19 @@ namespace prox
 		{
 			if (pinned_numa_node_.has_value() and std::cmp_equal(pinned_numa_node_.value(), numa_node)) { return; }
 
-			bitmask * cpus = numa_allocate_cpumask();
+			std::unique_ptr<bitmask, decltype(&numa_free_cpumask)> cpus(numa_allocate_cpumask(), numa_free_cpumask);
 
-			if (__glibc_unlikely(std::cmp_equal(numa_node_to_cpus(numa_node, cpus), -1)))
+			if (__glibc_unlikely(std::cmp_equal(numa_node_to_cpus(numa_node, cpus.get()), -1)))
 			{
-				throw std::runtime_error(fmt::format("Could not retrieve CPUs of NUMA node {}", numa_node));
+				std::stringstream msg;
+				msg << "Error retrieving cpus from node " << numa_node << ": " << strerror(errno);
+				throw std::runtime_error(msg.str());
 			}
 
-			if (__glibc_unlikely(numa_sched_setaffinity(pid_, cpus)))
+			if (__glibc_unlikely(numa_sched_setaffinity(pid_, cpus.get())))
 			{
 				throw std::runtime_error(set_affinity_error(pid_));
 			}
-
-			numa_free_cpumask(cpus);
 
 			pinned_numa_node_ = numa_node;
 		}
@@ -423,8 +430,32 @@ namespace prox
 
 		friend auto operator<<(std::ostream & os, const process & p) -> std::ostream &
 		{
-			os << fmt::format("PID: {:>6}, PPID: {:>6}, NODE: {:>2}, CPU: {:>3} ({:.1f}%), LWP: {:>5}, CMDLINE: {}",
-			                  p.pid(), p.ppid(), p.numa_node(), p.processor(), p.cpu_use(), p.lwp_, p.cmdline());
+			const auto to_string_wide = [](const auto & value, const auto width) -> std::string {
+				std::stringstream ss;
+				ss << std::setw(width) << std::right << value;
+				return ss.str();
+			};
+
+			const auto to_string_decimal = [](const auto & value, const int precision) {
+				using type_t = decltype(value);
+
+				const auto integer_part = std::floor(value);
+				const auto decimal_part =
+				    (value - integer_part) * std::pow(static_cast<type_t>(10), static_cast<type_t>(precision));
+
+				std::stringstream ss;
+				ss << static_cast<int64_t>(integer_part) << "." << std::setw(precision) << std::setfill('0')
+				   << std::right << decimal_part;
+				return ss.str();
+			};
+
+			os << "PID " << to_string_wide(p.pid(), 6) << " ";
+			os << "PPID " << to_string_wide(p.ppid(), 6) << " ";
+			os << "NODE " << to_string_wide(p.numa_node(), 2) << " ";
+			os << "CPU " << to_string_wide(p.processor(), 3) << " ";
+			os << "(" << to_string_decimal(p.cpu_use(), 1) << "%) ";
+			os << "LWP " << to_string_wide(p.lwp_, 5) << " ";
+			os << "CMDLINE " << p.cmdline();
 
 			return os;
 		}

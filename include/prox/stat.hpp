@@ -2,11 +2,11 @@
 
 #include <sys/types.h>
 
+#include <cstring>
+
 #include <filesystem>
 #include <fstream>
 #include <string>
-
-#include <fmt/core.h>
 
 namespace prox
 {
@@ -80,9 +80,9 @@ namespace prox
 
 		if (not file.is_open())
 		{
-			const auto error =
-			    fmt::format("Could not open stat file {}. Error: {}", stat_file.string(), std::strerror(errno));
-			throw std::runtime_error(error);
+			std::stringstream msg;
+			msg << "Error opening file " << stat_file << ": " << strerror(errno);
+			throw std::runtime_error(msg.str());
 		}
 
 		file >> stat.pid;
