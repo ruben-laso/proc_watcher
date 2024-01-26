@@ -516,7 +516,7 @@ namespace prox
 			};
 
 			const auto to_remove = processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove) |
-			                 ranges::to<std::vector<pid_t>>;
+			                       ranges::to<std::vector<pid_t>>;
 
 			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
 		}
