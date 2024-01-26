@@ -515,8 +515,10 @@ namespace prox
 				return read_from_bool_vector(old_pids, pid) and not read_from_bool_vector(updated_pids, pid);
 			};
 
-			ranges::for_each(processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove),
-			                 [&](const auto & pid) { erase(pid); });
+			const auto to_remove = processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove) |
+			                 ranges::to<std::vector<pid_t>>;
+
+			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
 		}
 
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &
