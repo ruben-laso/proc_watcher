@@ -17,6 +17,7 @@ struct Options
 {
 	static constexpr auto DEFAULT_DEBUG     = false;
 	static constexpr auto DEFAULT_PROFILE   = false;
+	static constexpr auto DEFAULT_PARTIAL   = false;
 	static constexpr auto DEFAULT_MIGRATION = false;
 
 	static constexpr auto DEFAULT_TIME    = 30.0;
@@ -25,6 +26,7 @@ struct Options
 
 	bool debug     = DEFAULT_DEBUG;
 	bool profile   = DEFAULT_PROFILE;
+	bool partial   = DEFAULT_PARTIAL;
 	bool migration = DEFAULT_MIGRATION;
 
 	float time    = DEFAULT_TIME;
@@ -93,6 +95,8 @@ void parse_options(CLI::App & app, const int argc, const char * argv[])
 	app.add_flag("-p,--profile", options.profile, "Profile children processes");
 	app.add_flag("-m,--migration", options.migration, "Migrate child process to random CPU");
 
+	app.add_flag("--partial", options.partial, "Partial update");
+
 	app.add_option("-t,--time", options.time, "Time to run (seconds) the demo for");
 	app.add_option("-s,--dt", options.dt, "Time step (seconds) for the demo");
 	app.add_option("-c,--cpu", options.cpu_use, "Minimum CPU usage (0-100%) to show processes");
@@ -110,6 +114,7 @@ void parse_options(CLI::App & app, const int argc, const char * argv[])
 		spdlog::debug("Options:");
 		spdlog::debug("\tDebug: {}", options.debug);
 		spdlog::debug("\tProfile: {}", options.profile);
+		spdlog::debug("\tPartial: {}", options.partial);
 		spdlog::debug("\tTime: {}", options.time);
 		spdlog::debug("\tTime step: {}", options.dt);
 		spdlog::debug("\tCPU usage: {}", options.cpu_use);
@@ -154,8 +159,8 @@ void update_tree()
 {
 	const auto millis_global   = measure([&] { global.processes.update(); });
 	const auto millis_per_proc = millis_global / static_cast<double>(global.processes.size());
-	spdlog::info("Global update for {} processes took {} ({} per process)", global.processes.size(),
-	             format_seconds(millis_global), format_seconds(millis_per_proc));
+	spdlog::info("{} update for {} processes took {} ({} per process)", options.partial ? "Partial" : "Full",
+	             global.processes.size(), format_seconds(millis_global), format_seconds(millis_per_proc));
 
 	spdlog::debug("Process tree with {} entries.", global.processes.size());
 
@@ -268,6 +273,8 @@ auto main(const int argc, const char * argv[]) -> int
 		}
 
 		spdlog::info("Demo of prox");
+
+		if (options.partial) { global.processes = prox::process_tree{ getpid() }; }
 
 		auto sleep_time = options.dt;
 

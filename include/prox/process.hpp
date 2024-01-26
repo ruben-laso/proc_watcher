@@ -437,15 +437,9 @@ namespace prox
 			};
 
 			const auto to_string_decimal = [](const auto & value, const int precision) {
-				using type_t = decltype(value);
-
-				const auto integer_part = std::floor(value);
-				const auto decimal_part =
-				    (value - integer_part) * std::pow(static_cast<type_t>(10), static_cast<type_t>(precision));
-
 				std::stringstream ss;
-				ss << static_cast<int64_t>(integer_part) << "." << std::setw(precision) << std::setfill('0')
-				   << std::right << decimal_part;
+				ss << std::setw(precision + 1) << std::setfill('0') << std::right << std::fixed
+				   << std::setprecision(precision) << value;
 				return ss.str();
 			};
 

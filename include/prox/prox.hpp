@@ -119,6 +119,189 @@ namespace prox
 			}
 		}
 
+		void notify_parents()
+		{
+			// Make sure that all processes know their children/tasks
+			auto to_notify = [&]() {
+				std::queue<pid_t> q = {};
+				for (const auto pid : processes_ | ranges::views::keys)
+				{
+					q.push(pid);
+				}
+				return q;
+			}();
+
+			while (not to_notify.empty())
+			{
+				const auto pid = to_notify.front();
+				to_notify.pop();
+
+				// The root process has no parent
+				if (pid == root_) { continue; }
+
+				// Get the process
+				const auto proc_opt = get(pid);
+				if (not proc_opt.has_value()) { continue; }
+				auto & proc = *proc_opt.value();
+
+				// Notify to the parent
+				const auto ppid = proc.effective_ppid();
+
+				// Get the parent process
+				auto parent_opt = get(ppid);
+				if (not parent_opt.has_value()) { continue; }
+				auto & parent = *parent_opt.value();
+
+				// Add the process to the parent
+				if (proc.lwp()) { parent.add_task(proc.pid()); }
+				else { parent.add_child(proc.pid()); }
+
+				to_notify.push(ppid);
+			}
+		}
+
+		template<typename Bool_map>
+		void tree_update(const pid_t root, Bool_map & updated_pids)
+		{
+			namespace fs = std::filesystem;
+
+			// Pair for PID and the /proc path
+			using pid_path_t = std::pair<pid_t, std::optional<fs::path>>;
+
+			// Queue of PIDs to update
+			std::queue<pid_path_t> to_update;
+			to_update.emplace(root, std::nullopt);
+
+			while (not to_update.empty())
+			{
+				const auto [pid, path_opt] = to_update.front();
+				to_update.pop();
+
+				// Check if the PID is already updated
+				if (read_from_bool_vector(updated_pids, pid)) { continue; }
+
+				// Find the process
+				auto proc_it = processes_.find(pid);
+
+				// If the process is not found, try to create a new one
+				auto path = path_opt.value_or(proc_path_ / std::to_string(pid));
+
+				proc_ptr_t proc_ptr;
+
+				try
+				{
+					// Insert the process or update it
+					if (proc_it == processes_.end()) { proc_ptr = insert(pid, path.string()); }
+					else
+					{
+						proc_ptr = proc_it->second;
+						// Update the process
+						proc_ptr->update();
+					}
+
+					// Add the PID to the updated PIDs
+					write_into_bool_vector(updated_pids, pid, true);
+				}
+				catch (...)
+				{
+					continue;
+				}
+
+				// Update its tasks
+				for (const auto & task : proc_ptr->tasks())
+				{
+					to_update.emplace(task, path / "task" / std::to_string(task));
+				}
+
+				// Add the children to the queue
+				for (const auto & child : proc_ptr->children())
+				{
+					to_update.emplace(child, std::nullopt);
+				}
+			}
+		}
+
+		void tree_update(const pid_t root)
+		{
+			namespace fs = std::filesystem;
+
+			cpu_time_.update();
+
+			const auto max_pid = processes_.empty() ? 99'999 : ranges::max(processes_ | ranges::views::keys);
+
+			// old_pids = all children and tasks of "root"
+			std::vector<bool> old_pids(static_cast<std::size_t>(max_pid + 1), false);
+			ranges::for_each(processes_ | ranges::views::keys,
+			                 [&](const auto & pid) { write_into_bool_vector(old_pids, pid, true); });
+
+			// Set of updated PIDs to avoid updating the same process twice
+			std::vector<bool> updated_pids(static_cast<size_t>(max_pid + 1), false);
+
+			// Update in "tree-mode"
+			tree_update(root, updated_pids);
+
+			// Make sure all processes know their children/tasks
+			notify_parents();
+
+			// Remove the processes that couldn't be updated or that are not in the tree anymore
+			const auto condition_to_remove = [&](const auto & pid) {
+				return read_from_bool_vector(old_pids, pid) and not read_from_bool_vector(updated_pids, pid);
+			};
+
+			const auto to_remove = processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove) |
+			                       ranges::to<std::vector<pid_t>>;
+
+			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
+		}
+
+		void full_update()
+		{
+			namespace fs = std::filesystem;
+
+			cpu_time_.update();
+
+			const auto max_pid = processes_.empty() ? 99'999 : ranges::max(processes_ | ranges::views::keys);
+
+			std::vector<bool> old_pids(static_cast<std::size_t>(max_pid + 1), false);
+			ranges::for_each(processes_ | ranges::views::keys,
+			                 [&](const auto & pid) { write_into_bool_vector(old_pids, pid, true); });
+
+			// Set of updated PIDs to avoid updating the same process twice
+			std::vector<bool> updated_pids(static_cast<size_t>(max_pid + 1), false);
+
+			for (const auto & entry : fs::directory_iterator(proc_path_))
+			{
+				// Check if the entry is a directory
+				if (not fs::is_directory(entry)) { continue; }
+
+				const auto & path = entry.path().filename().string();
+
+				// Check if the entry is a number (checking the first character is enough)
+				if (std::isdigit(path[0]) == 0) { continue; }
+
+				const pid_t pid = std::stoi(path);
+
+				// Check if the PID is already updated
+				if (read_from_bool_vector(updated_pids, pid)) { continue; }
+
+				// Update in "tree-mode"
+				tree_update(pid, updated_pids);
+			}
+
+			// Make sure that all processes know their children/tasks
+			notify_parents();
+
+			// Remove the processes that couldn't be updated or that are not in the tree anymore
+			const auto condition_to_remove = [&](const auto & pid) {
+				return read_from_bool_vector(old_pids, pid) and not read_from_bool_vector(updated_pids, pid);
+			};
+
+			const auto to_remove = processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove) |
+			                       ranges::to<std::vector<pid_t>>;
+
+			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
+		}
+
 		void print_level(std::ostream & os, const proc_t & p, const size_t level = 0) const
 		{
 			static constexpr size_t TAB_SIZE = 3;
@@ -160,6 +343,8 @@ namespace prox
 			// Check that the tree is not empty
 			if (processes_.empty()) { throw std::runtime_error("The process tree is empty"); }
 		}
+
+		process_tree(const pid_t root) : process_tree(root, DEFAULT_PROC_PATH) {}
 
 		process_tree(const pid_t root, std::filesystem::path proc_path) : root_(root), proc_path_(std::move(proc_path))
 		{
@@ -398,127 +583,10 @@ namespace prox
 			processes_.erase(proc_it);
 		}
 
-		template<typename Bool_map>
-		void update(const pid_t root, Bool_map & updated_pids)
-		{
-			namespace fs = std::filesystem;
-
-			// Pair for PID and the /proc path
-			using pid_path_t = std::pair<pid_t, std::optional<fs::path>>;
-
-			// Queue of PIDs to update
-			std::queue<pid_path_t> to_update;
-			to_update.emplace(root, std::nullopt);
-
-			while (not to_update.empty())
-			{
-				const auto [pid, path_opt] = to_update.front();
-				to_update.pop();
-
-				// Check if the PID is already updated
-				if (read_from_bool_vector(updated_pids, pid)) { continue; }
-
-				// Find the process
-				auto proc_it = processes_.find(pid);
-
-				// If the process is not found, try to create a new one
-				auto path = path_opt.value_or(proc_path_ / std::to_string(pid));
-
-				proc_ptr_t proc_ptr;
-
-				try
-				{
-					// Insert the process or update it
-					if (proc_it == processes_.end()) { proc_ptr = insert(pid, path.string()); }
-					else
-					{
-						proc_ptr = proc_it->second;
-						// Update the process
-						proc_ptr->update();
-					}
-
-					// Add the PID to the updated PIDs
-					write_into_bool_vector(updated_pids, pid, true);
-				}
-				catch (...)
-				{
-					continue;
-				}
-
-				// Update its tasks
-				for (const auto & task : proc_ptr->tasks())
-				{
-					to_update.emplace(task, path / "task" / std::to_string(task));
-				}
-
-				// Add the children to the queue
-				for (const auto & child : proc_ptr->children())
-				{
-					to_update.emplace(child, std::nullopt);
-				}
-			}
-		}
-
 		void update()
 		{
-			namespace fs = std::filesystem;
-
-			cpu_time_.update();
-
-			const auto max_pid = processes_.empty() ? 99'999 : ranges::max(processes_ | ranges::views::keys);
-
-			std::vector<bool> old_pids(static_cast<std::size_t>(max_pid + 1), false);
-			ranges::for_each(processes_ | ranges::views::keys,
-			                 [&](const auto & pid) { write_into_bool_vector(old_pids, pid, true); });
-
-			// Set of updated PIDs to avoid updating the same process twice
-			std::vector<bool> updated_pids(static_cast<size_t>(max_pid + 1), false);
-
-			for (const auto & entry : fs::directory_iterator(proc_path_))
-			{
-				// Check if the entry is a directory
-				if (not fs::is_directory(entry)) { continue; }
-
-				const auto & path = entry.path().filename().string();
-
-				// Check if the entry is a number (checking the first character is enough)
-				if (std::isdigit(path[0]) == 0) { continue; }
-
-				const pid_t pid = std::stoi(path);
-
-				// Check if the PID is already updated
-				if (read_from_bool_vector(updated_pids, pid)) { continue; }
-
-				// Update in "tree-mode"
-				update(pid, updated_pids);
-			}
-
-			// Make sure that all processes know their children/tasks
-			for (const auto & proc : ranges::views::values(processes_))
-			{
-				if (proc->pid() == root_) { continue; }
-
-				const auto ppid = proc->ppid();
-
-				// Get the parent process
-				auto parent_opt = get(ppid);
-				if (not parent_opt.has_value()) { continue; }
-				auto & parent = *parent_opt.value();
-
-				// Add the process to the parent
-				if (proc->lwp()) { parent.add_task(proc->pid()); }
-				else { parent.add_child(proc->pid()); }
-			}
-
-			// Remove the processes that couldn't be updated or that are not in the tree anymore
-			const auto condition_to_remove = [&](const auto & pid) {
-				return read_from_bool_vector(old_pids, pid) and not read_from_bool_vector(updated_pids, pid);
-			};
-
-			const auto to_remove = processes_ | ranges::views::keys | ranges::views::filter(condition_to_remove) |
-			                       ranges::to<std::vector<pid_t>>;
-
-			ranges::for_each(to_remove, [&](const auto & pid) { erase(pid); });
+			if (std::cmp_equal(root_, DEFAULT_ROOT)) { full_update(); }
+			else { tree_update(root_); }
 		}
 
 		friend auto operator<<(std::ostream & os, const process_tree & p) -> std::ostream &
